@@ -1,7 +1,7 @@
 <!--
  * @Author: yubaolee <yubaolee@163.com> | ahfu~ <954478625@qq.com>
  * @Date: 2021-06-01 14:10:29
- * @LastEditTime: 2024-02-23 11:36:24
+ * @LastEditTime: 2025-12-21 17:39:13
  * @Description: 处于草稿和驳回状态的流程，可以进行编辑
  *               可以编辑流程的基本信息和提交的表单内容
  * @
@@ -171,7 +171,7 @@ export default {
       .then((response) => {
         this.postObj = response.data
         this.formData = JSON.parse(response.data.frmData)
-        this.formJson = JSON.parse(response.data.frmContentData)
+        
 
         if (this.postObj.frmType === 1) {
           // 用户自定义的页面,即Vue组件
@@ -179,6 +179,8 @@ export default {
           loadComp().then(res => {
             this.userDefineComp = res.default
           })
+        }else{
+          this.formJson = JSON.parse(response.data.frmContentData)
         }
       })
       .catch((err) => {
