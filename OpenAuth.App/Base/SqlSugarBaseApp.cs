@@ -11,6 +11,7 @@ using OpenAuth.Repository.Domain;
 using SqlSugar;
 using Autofac;
 using Infrastructure.Extensions.AutofacManager;
+using MySql.Data.MySqlClient.Memcached;
 
 namespace OpenAuth.App
 {
@@ -69,7 +70,15 @@ namespace OpenAuth.App
             if (loginUser.User.Account == Define.SYSTEM_USERNAME) return SugarClient.Queryable<T>();  //超级管理员特权
             
             var moduleName = typeof(T).Name;
-            var rule = SugarClient.Queryable<DataPrivilegeRule>().First(u => u.SourceCode == moduleName);
+
+            //数据权限永远只用默认连接字符串，避免租户隔离
+            ISqlSugarClient defualtClient = SugarClient;
+            var currentConfigId = SugarClient.CurrentConnectionConfig.ConfigId;
+            if(currentConfigId != null && currentConfigId.ToString() !=""){
+                defualtClient = SugarClient.AsTenant().GetConnection(Define.DEFAULT_TENANT_ID);
+            }
+            var rule = defualtClient.Queryable<DataPrivilegeRule>().First(u => u.SourceCode == moduleName);
+
             if (rule == null) return SugarClient.Queryable<T>(); //没有设置数据规则，那么视为该资源允许被任何主体查看
             if (rule.PrivilegeRules.Contains(Define.DATAPRIVILEGE_LOGINUSER) ||
                                              rule.PrivilegeRules.Contains(Define.DATAPRIVILEGE_LOGINROLE)||
