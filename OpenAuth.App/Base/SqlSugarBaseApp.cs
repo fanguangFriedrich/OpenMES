@@ -75,7 +75,7 @@ namespace OpenAuth.App
             ISqlSugarClient defualtClient = SugarClient;
             var currentConfigId = SugarClient.CurrentConnectionConfig.ConfigId;
             if(currentConfigId != null && currentConfigId.ToString() !=""){
-                defualtClient = SugarClient.AsTenant().GetConnection(Define.DEFAULT_TENANT_ID);
+                defualtClient = SugarClient.AsTenant().GetConnection("");
             }
             var rule = defualtClient.Queryable<DataPrivilegeRule>().First(u => u.SourceCode == moduleName);
 
