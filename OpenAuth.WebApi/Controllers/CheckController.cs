@@ -189,8 +189,8 @@ namespace OpenAuth.WebApi.Controllers
                 {
                     return new PagedDynamicDataResp
                     {
-                        Message = "未找到指定的节点",
-                        Code = 500,
+                        Data = new List<OrgView>(),
+                        Count = 0
                     };
                 }
                 cascadeId = org.CascadeId;
