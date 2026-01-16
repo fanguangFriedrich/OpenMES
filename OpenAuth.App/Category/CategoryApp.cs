@@ -55,7 +55,7 @@ namespace OpenAuth.App
 
             var propertyStr = string.Join(',', columnFields.Select(u =>u.ColumnName));
             result.ColumnFields = columnFields;
-            result.Data = objs.OrderBy(u => u.DtCode)
+            result.Data = objs.OrderBy(u => u.SortNo).OrderBy(u => u.DtCode)
                 .Skip((request.page - 1) * request.limit)
                 .Take(request.limit).Select($"{propertyStr}").ToList();
             result.Count = await objs.CountAsync();
