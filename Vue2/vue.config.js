@@ -12,6 +12,7 @@ module.exports = {
   lintOnSave: process.env.NODE_ENV !== 'production',
   devServer: {
     port: 1803,     // 端口
+    disableHostCheck: true,
     overlay: {
       warnings: true,
       errors: false

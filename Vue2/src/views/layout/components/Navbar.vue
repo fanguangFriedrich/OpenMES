@@ -9,7 +9,7 @@
 <template>
   <el-menu class="navbar" mode="horizontal">
     <div class="logo">
-      <img class="user-avatar" :src="logo">OpenAuth.Net Vue2
+      <img class="user-avatar" :src="logo">俊杰机械 MES系统
     </div>
     <hamburger class="hamburger-container" :toggleClick="toggleSideBar" :isActive="sidebar.opened"></hamburger>
     <el-dropdown class="avatar-container" @command="handleCommand" trigger="click">

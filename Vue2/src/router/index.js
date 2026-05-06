@@ -283,6 +283,26 @@ export const constantRouterMap = [
         component: () => import('@/views/dashboard/index'),
       },
       {
+        path: '/mes/mesWorkOrder',
+        name: 'mesWorkOrder',
+        hidden: true,
+        meta: {
+          title: '派工单查询',
+          icon: 'list',
+        },
+        component: () => import('@/views/mes/mesWorkOrder/index'),
+      },
+      {
+        path: '/mes/mesWorkOrder/detail',
+        name: 'mesWorkOrderDetail',
+        hidden: true,
+        meta: {
+          title: '派工单详情',
+          icon: 'list',
+        },
+        component: () => import('@/views/mes/mesWorkOrder/detail'),
+      },
+      {
         path: '/profile',
         name: 'profile',
         hidden: true,
@@ -305,6 +325,7 @@ export const constantRouterMap = [
         },
         component: () => import('@/views/iframePage/index'),
       },
+      
     ],
   },
 ]
