@@ -43,4 +43,8 @@
     <ProjectReference Include="..\OpenAuth.Repository\OpenAuth.Repository.csproj" />
   </ItemGroup>
 
+  <ItemGroup>
+    <Folder Include="DingTalk\Service\" />
+  </ItemGroup>
+
 </Project>

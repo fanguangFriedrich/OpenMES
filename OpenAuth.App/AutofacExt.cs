@@ -53,7 +53,8 @@ namespace OpenAuth.App
             //防止单元测试时已经注入
             if (services.All(u => u.ServiceType != typeof(ICacheContext)))
             {
-                services.AddScoped(typeof(ICacheContext), typeof(CacheContext));
+                //services.AddScoped(typeof(ICacheContext), typeof(CacheContext));
+                services.AddScoped(typeof(ICacheContext), typeof(RedisCacheContext)); // CacheContext → RedisCacheContext
             }
 
             if (services.All(u => u.ServiceType != typeof(IHttpContextAccessor)))
@@ -84,8 +85,10 @@ namespace OpenAuth.App
             
             //注册app层
             builder.RegisterAssemblyTypes(Assembly.GetExecutingAssembly());
-            
-            builder.RegisterType(typeof(CacheContext)).As(typeof(ICacheContext));
+
+            // 改成这个
+            builder.RegisterType(typeof(RedisCacheContext)).As(typeof(ICacheContext)).SingleInstance();
+
             builder.RegisterType(typeof(HttpContextAccessor)).As(typeof(IHttpContextAccessor));
             
             InitDependency(builder);

@@ -1,0 +1,600 @@
+<template>
+  <div class="dingtalkmanager-container">
+    <div class="page-header">
+      <div class="page-title">
+        <i class="el-icon-office-building title-icon"></i>
+        <span>钉钉通讯录管理</span>
+      </div>
+    </div>
+
+    <!-- 部门管理 -->
+    <div class="section-card">
+      <div class="section-header">
+        <span class="section-title">
+          <i class="el-icon-folder"></i> 部门管理
+        </span>
+        <div class="section-actions">
+          <el-button
+            type="primary"
+            size="small"
+            icon="el-icon-search"
+            :loading="loadingDepts"
+            @click="fetchAllDeptList"
+          >查询钉钉公司组织架构</el-button>
+          <el-button
+            type="success"
+            size="small"
+            icon="el-icon-refresh"
+            :disabled="selectedDeptRows.length === 0"
+            :loading="syncing"
+            @click="syncSelectedDepts"
+          >同步钉钉公司组织架构（{{ selectedDeptRows.length }}）</el-button>
+        </div>
+      </div>
+
+      <el-table
+        v-loading="loadingDepts"
+        :data="deptList"
+        border
+        stripe
+        size="small"
+        style="width: 100%; margin-top: 12px;"
+        @selection-change="handleDeptSelectionChange"
+      >
+        <el-table-column type="selection" width="50" align="center" />
+        <el-table-column prop="deptId" label="部门ID" width="120" align="center" />
+        <el-table-column prop="name" label="部门名称" min-width="160" />
+        <el-table-column prop="parentId" label="父部门ID" width="120" align="center">
+          <template #default="{ row }">
+            <el-tag size="mini" type="info">{{ row.parentId === 1 ? '根部门' : row.parentId }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="autoAddUser" label="自动添加成员" width="130" align="center">
+          <template #default="{ row }">
+            <el-tag :type="row.autoAddUser ? 'success' : 'info'" size="mini">{{ row.autoAddUser ? '是' : '否' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="createDeptGroup" label="创建部门群" width="120" align="center">
+          <template #default="{ row }">
+            <el-tag :type="row.createDeptGroup ? 'success' : 'info'" size="mini">{{ row.createDeptGroup ? '是' : '否' }}</el-tag>
+          </template>
+        </el-table-column>
+      </el-table>
+
+      <div v-if="deptList.length > 0" class="table-footer">
+        共 <strong>{{ deptList.length }}</strong> 个部门，已选 <strong>{{ selectedDeptRows.length }}</strong> 个
+      </div>
+      <el-empty v-if="!loadingDepts && deptList.length === 0" description="暂无数据，请点击「查询钉钉公司组织架构」" />
+    </div>
+
+    <!-- 员工管理 -->
+    <div class="section-card">
+      <div class="section-header">
+        <span class="section-title">
+          <i class="el-icon-user"></i> 员工管理
+        </span>
+        <div class="section-actions">
+          <el-button
+            type="primary"
+            size="small"
+            icon="el-icon-search"
+            :loading="loadingUsers"
+            @click="fetchAllUsers"
+          >查询钉钉公司所有员工</el-button>
+          <el-button
+            type="success"
+            size="small"
+            icon="el-icon-refresh"
+            :disabled="selectedUserRows.length === 0"
+            :loading="syncingUsers"
+            @click="syncSelectedUsers"
+          >同步钉钉员工（{{ selectedUserRows.length }}）</el-button>
+        </div>
+      </div>
+
+      <!-- 搜索过滤 -->
+      <div v-if="userList.length > 0" class="search-bar">
+        <el-input
+          v-model="userSearchKeyword"
+          placeholder="按姓名/工号/手机号搜索"
+          size="small"
+          prefix-icon="el-icon-search"
+          clearable
+          style="width: 260px;"
+        />
+        <el-button
+          size="small"
+          :type="isAllUserSelected ? 'warning' : 'default'"
+          :icon="isAllUserSelected ? 'el-icon-minus' : 'el-icon-check'"
+          style="margin-left: 10px;"
+          @click="toggleSelectAllUsers"
+        >{{ isAllUserSelected ? `取消全选（${selectedUserRows.length}）` : `全选全部员工（${filteredUserList.length}）` }}</el-button>
+      </div>
+      <div v-if="fetchProgress" class="fetch-progress">
+        <i class="el-icon-loading"></i> {{ fetchProgress }}
+      </div>
+      <el-table
+        v-loading="loadingUsers"
+        :data="pagedUserList"
+        border
+        stripe
+        size="small"
+        style="width: 100%; margin-top: 12px;"
+        @selection-change="handleUserSelectionChange"
+      >
+        <el-table-column type="selection" width="50" align="center" />
+        <el-table-column prop="userId" label="钉钉UserId" width="180" show-overflow-tooltip />
+        <el-table-column label="头像" width="70" align="center">
+          <template #default="{ row }">
+            <el-avatar v-if="row.avatar" :src="row.avatar" :size="30" />
+            <el-avatar v-else icon="el-icon-user" :size="30" />
+          </template>
+        </el-table-column>
+        <el-table-column prop="name" label="姓名" width="100" align="center" />
+        <el-table-column prop="jobNumber" label="工号" width="100" align="center" />
+        <el-table-column prop="title" label="职位" width="130" show-overflow-tooltip />
+        <el-table-column prop="mobile" label="手机号" width="130" align="center" />
+        <el-table-column prop="email" label="邮箱" min-width="160" show-overflow-tooltip />
+        <el-table-column prop="workPlace" label="工作地点" width="130" show-overflow-tooltip />
+        <el-table-column label="入职时间" width="120" align="center">
+          <template #default="{ row }">
+            {{ formatHiredDate(row.hiredDate) }}
+          </template>
+        </el-table-column>
+        <el-table-column prop="active" label="在职状态" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag :type="row.active ? 'success' : 'danger'" size="mini">{{ row.active ? '在职' : '离职' }}</el-tag>
+          </template>
+        </el-table-column>
+        <el-table-column prop="leader" label="是否主管" width="100" align="center">
+          <template #default="{ row }">
+            <el-tag v-if="row.leader" type="warning" size="mini">主管</el-tag>
+            <span v-else>-</span>
+          </template>
+        </el-table-column>
+        
+      </el-table>
+      <div v-if="filteredUserList.length > 0" class="pagination-bar">
+      <el-pagination
+        background
+        layout="total, sizes, prev, pager, next, jumper"
+        :total="filteredUserList.length"
+        :page-sizes="[10, 20, 50, 100]"
+        :page-size="userPageSize"
+        :current-page="userCurrentPage"
+        @size-change="handleUserSizeChange"
+        @current-change="handleUserCurrentChange"
+      />
+    </div>
+      <div v-if="userList.length > 0" class="table-footer">
+        共 <strong>{{ userList.length }}</strong> 名员工，已选 <strong>{{ selectedUserRows.length }}</strong> 名
+      </div>
+      <el-empty v-if="!loadingUsers && userList.length === 0" description="暂无数据，请点击「查询钉钉公司所有员工」" />
+    </div>
+  </div>
+</template>
+
+<script>
+import * as orgs from '@/api/orgs'
+import * as login from '@/api/login'
+import * as users from '@/api/users'
+import { getAllDeptList} from '@/api/dingtalk'
+import { getDeptUserList} from '@/api/dingtalk'
+import { listToTreeSelect } from '@/utils'
+
+export default {
+  name: 'dingtalkmanager',
+  data() {
+    return {
+      // 部门
+      deptList: [],
+      selectedDeptRows: [],
+      loadingDepts: false,
+      syncing: false,
+
+      // 员工
+      userList: [],
+      selectedUserRows: [],
+      loadingUsers: false,
+      userSearchKeyword: '',
+      userCurrentPage: 1,  // 新增
+      userPageSize: 20,    // 新增
+      syncingUsers: false,
+      isAllUserSelected: false, // 新增
+      fetchProgress: '',
+    }
+  },
+  computed: {
+    // 员工搜索过滤
+    filteredUserList() {
+      const kw = this.userSearchKeyword.trim().toLowerCase()
+      if (!kw) return this.userList
+      return this.userList.filter(u =>
+        (u.name && u.name.toLowerCase().includes(kw)) ||
+        (u.jobNumber && u.jobNumber.toLowerCase().includes(kw)) ||
+        (u.mobile && u.mobile.includes(kw))
+      )
+    },
+    // 新增：在过滤结果基础上分页
+    pagedUserList() {
+      const start = (this.userCurrentPage - 1) * this.userPageSize
+      return this.filteredUserList.slice(start, start + this.userPageSize)
+    }
+  },
+  // 搜索关键词变化时重置到第一页，在 watch 中添加
+  watch: {
+    userSearchKeyword() {
+      this.userCurrentPage = 1
+      this.selectedUserRows = []       // 新增
+      this.isAllUserSelected = false   // 新增
+    }
+  },
+  methods: {
+    // ─── 部门 ──────────────────────────────────────────────
+
+    async fetchAllDeptList() {
+      this.loadingDepts = true
+      try {
+        const res = await getAllDeptList()
+        if (res.code === 200 || res.code === undefined) {
+          this.deptList = res.data || []
+          this.$message.success(`成功获取 ${this.deptList.length} 个部门`)
+        } else {
+          this.$message.error(res.message || '获取部门列表失败')
+        }
+      } catch (e) {
+        this.$message.error('请求失败：' + e.message)
+      } finally {
+        this.loadingDepts = false
+      }
+    },
+
+    handleDeptSelectionChange(rows) {
+      this.selectedDeptRows = rows
+    },
+
+    async syncSelectedDepts() {
+      if (this.selectedDeptRows.length === 0) {
+        this.$message.warning('请先勾选需要同步的部门')
+        return
+      }
+      this.syncing = true
+      let successCount = 0
+      let skipCount = 0
+      let failCount = 0
+      try {
+        const orgRes = await login.getOrgs()
+        let existingOrgs = orgRes.data || []
+
+        for (const dept of this.selectedDeptRows) {
+          try {
+            const exists = existingOrgs.some(o => o.name === dept.name)
+            if (exists) { skipCount++; continue }
+
+            let parentId = ''
+            let parentName = '根节点'
+
+            if (dept.parentId && dept.parentId !== 1) {
+              const parentDingDept = this.deptList.find(d => d.deptId === dept.parentId)
+              if (!parentDingDept) { failCount++; continue }
+              const parentOrg = existingOrgs.find(o => o.name === parentDingDept.name)
+              if (!parentOrg) { failCount++; continue }
+              parentId = parentOrg.id
+              parentName = parentOrg.name
+            }
+
+            const newOrg = {
+              id: undefined, cascadeId: '', parentName,
+              chairmanId: '', parentId, name: dept.name, status: 0
+            }
+            const res = await orgs.add(newOrg)
+            existingOrgs.push({ id: res.data.id, name: dept.name, parentId })
+            successCount++
+          } catch (e) {
+            console.error(`[同步] 部门「${dept.name}」失败:`, e)
+            failCount++
+          }
+        }
+      } catch (e) {
+        this.$message.error('获取现有部门失败：' + e.message)
+        return
+      } finally {
+        this.syncing = false
+      }
+      this.getOrgTree()
+      this.$notify({
+        title: '同步完成',
+        message: `成功 ${successCount} 个，跳过（已存在）${skipCount} 个，失败（无父部门）${failCount} 个`,
+        type: successCount > 0 ? 'success' : 'warning',
+        duration: 4000
+      })
+    },
+
+    getOrgTree() {
+      var _this = this
+      login.getOrgs().then(response => {
+        _this.orgs = response.data.map(item => ({
+          id: item.id, label: item.name, parentId: item.parentId || null
+        }))
+        var orgstmp = JSON.parse(JSON.stringify(_this.orgs))
+        _this.orgsTree = listToTreeSelect(orgstmp)
+      })
+    },
+
+    // ─── 员工 ──────────────────────────────────────────────
+
+    async fetchAllUsers() {
+      this.loadingUsers = true
+      this.userList = []
+      this.fetchProgress = ''
+
+      try {
+        // 1. 先确保部门列表已加载
+        if (this.deptList.length === 0) {
+          this.fetchProgress = '正在获取部门列表...'
+          const deptRes = await getAllDeptList()
+          this.deptList = deptRes.data || []
+        }
+
+        // 2. 逐个部门查员工
+        const userMap = new Map() // userId 去重
+        const total = this.deptList.length
+
+        for (let i = 0; i < this.deptList.length; i++) {
+          const dept = this.deptList[i]
+          this.fetchProgress = `正在获取部门员工 (${i + 1}/${total})：${dept.name}`
+
+          try {
+            const res = await getDeptUserList(dept.deptId)
+            const list = res.data || []
+            list.forEach(u => {
+              if (u.userId && !userMap.has(u.userId)) {
+                userMap.set(u.userId, u)
+              }
+            })
+          } catch (e) {
+            console.warn(`[获取员工] 部门「${dept.name}」失败:`, e.message)
+          }
+        }
+
+        this.userList = Array.from(userMap.values())
+        this.fetchProgress = ''
+        this.$message.success(`成功获取 ${this.userList.length} 名员工`)
+
+      } catch (e) {
+        this.$message.error('请求失败：' + e.message)
+        this.fetchProgress = ''
+      } finally {
+        this.loadingUsers = false
+      }
+    },
+
+    // 全选/取消全选所有员工（跨分页）
+    toggleSelectAllUsers() {
+      if (this.isAllUserSelected) {
+        // 取消全选
+        this.selectedUserRows = []
+        this.isAllUserSelected = false
+      } else {
+        // 全选 filteredUserList 所有数据
+        this.selectedUserRows = [...this.filteredUserList]
+        this.isAllUserSelected = true
+      }
+    },
+
+    // 当前页勾选变化时，合并到 selectedUserRows
+    handleUserSelectionChange(rows) {
+      // 当前页的数据
+      const currentPageIds = new Set(this.pagedUserList.map(u => u.userId))
+      // 保留非当前页已选的
+      const otherPageSelected = this.selectedUserRows.filter(u => !currentPageIds.has(u.userId))
+      // 合并当前页新勾选的
+      this.selectedUserRows = [...otherPageSelected, ...rows]
+      // 如果手动取消了某行，退出全选状态
+      this.isAllUserSelected = this.selectedUserRows.length === this.filteredUserList.length
+    },
+    handleUserSizeChange(size) {
+      this.userPageSize = size
+      this.userCurrentPage = 1
+    },
+    handleUserCurrentChange(page) {
+      this.userCurrentPage = page
+    },
+    // 时间戳转日期
+    formatHiredDate(timestamp) {
+      if (!timestamp) return '-'
+      const date = new Date(timestamp)
+      const y = date.getFullYear()
+      const m = String(date.getMonth() + 1).padStart(2, '0')
+      const d = String(date.getDate()).padStart(2, '0')
+      return `${y}-${m}-${d}`
+    },
+
+    async syncSelectedUsers() {
+      if (this.selectedUserRows.length === 0) {
+        this.$message.warning('请先勾选需要同步的员工')
+        return
+      }
+
+      this.syncingUsers = true
+      let successCount = 0
+      let skipCount = 0
+      let failCount = 0
+
+      try {
+        // 1. 获取现有系统用户列表，用于判断重复
+        const userRes = await users.getList({ page: 1, limit: 99999 })
+        const existingUsers = userRes.data?.list || userRes.data || []
+
+        // 2. 获取现有部门列表，用于匹配 organizationIds
+        const orgRes = await login.getOrgs()
+        const existingOrgs = orgRes.data || []
+
+        for (const dingUser of this.selectedUserRows) {
+          try {
+            // 3. account = jobNumber_name
+            const account = `${dingUser.jobNumber || ''}_${dingUser.name || ''}`
+
+            // 4. 判断账号是否已存在
+            const exists = existingUsers.some(u => u.account === account)
+            if (exists) {
+              console.log(`[同步员工] 账号「${account}」已存在，跳过`)
+              skipCount++
+              continue
+            }
+
+            // 5. 匹配所属部门：钉钉返回的 deptIdList 对应多个部门
+            //    通过钉钉部门ID → 找到钉钉部门名称 → 找到系统部门ID
+            let organizationIds = ''
+            if (dingUser.deptIdList && dingUser.deptIdList.length > 0) {
+              const orgIdArr = []
+              for (const dingDeptId of dingUser.deptIdList) {
+                // 从已查询的钉钉部门列表中找到部门名称
+                const dingDept = this.deptList.find(d => d.deptId === dingDeptId)
+                if (!dingDept) continue
+                // 从系统部门中找到对应部门
+                const sysOrg = existingOrgs.find(o => o.name === dingDept.name)
+                if (sysOrg) orgIdArr.push(sysOrg.id)
+              }
+              organizationIds = orgIdArr.join(',')
+            }
+
+            // 6. 没有匹配到任何部门则跳过（后端要求 OrganizationIds 不能为空）
+            if (!organizationIds) {
+              console.log(`[同步员工] 「${dingUser.name}」未匹配到系统部门，跳过`)
+              failCount++
+              continue
+            }
+
+            // 7. 构造新用户数据
+            const newUser = {
+              id: undefined,
+              account: account,
+              name: dingUser.name || '',
+              password: dingUser.unionId || '',  // 密码 = unionId
+              organizationIds: organizationIds,
+              organizations: '',
+              parentId: '',
+              description: '',
+              status: 0,
+              sex: 0,
+              bizCode: dingUser.userId || '',    // 钉钉userId存到bizCode
+            }
+
+            // 8. 调用接口添加
+            const res = await users.add(newUser)
+            newUser.id = res.data
+
+            console.log(`[同步员工] 「${dingUser.name}」同步成功，account=${account}`)
+            successCount++
+
+          } catch (e) {
+            console.error(`[同步员工] 「${dingUser.name}」同步失败:`, e)
+            failCount++
+          }
+        }
+
+      } catch (e) {
+        this.$message.error('同步员工失败：' + e.message)
+        return
+      } finally {
+        this.syncingUsers = false
+      }
+
+      // 9. 结果提示
+      this.$notify({
+        title: '同步完成',
+        message: `成功 ${successCount} 人，跳过（已存在）${skipCount} 人，失败（无匹配部门）${failCount} 人`,
+        type: successCount > 0 ? 'success' : 'warning',
+        duration: 4000
+      })
+    },
+  },
+}
+</script>
+
+<style scoped>
+.dingtalkmanager-container {
+  padding: 20px;
+  background: #f0f2f5;
+  min-height: 100%;
+}
+
+.page-header {
+  background: #fff;
+  padding: 14px 20px;
+  border-radius: 4px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  margin-bottom: 16px;
+}
+
+.page-title {
+  display: flex;
+  align-items: center;
+  font-size: 16px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.title-icon {
+  font-size: 20px;
+  color: #409eff;
+  margin-right: 8px;
+}
+
+.section-card {
+  background: #fff;
+  padding: 16px 20px;
+  border-radius: 4px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
+  margin-bottom: 16px;
+}
+
+.section-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+}
+
+.section-title {
+  font-size: 15px;
+  font-weight: 600;
+  color: #303133;
+}
+
+.section-title i {
+  margin-right: 6px;
+  color: #409eff;
+}
+
+.section-actions {
+  display: flex;
+  gap: 10px;
+}
+
+.search-bar {
+  margin-top: 12px;
+}
+
+.table-footer {
+  margin-top: 12px;
+  font-size: 13px;
+  color: #606266;
+  text-align: right;
+}
+
+.pagination-bar {
+  margin-top: 12px;
+  display: flex;
+  justify-content: flex-end;
+}
+
+.fetch-progress {
+  margin-top: 12px;
+  font-size: 13px;
+  color: #409eff;
+  padding: 8px 12px;
+  background: #ecf5ff;
+  border-radius: 4px;
+}
+</style>

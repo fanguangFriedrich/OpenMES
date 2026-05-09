@@ -2,10 +2,12 @@
 using System.Collections.Generic;
 using System.Threading.Tasks;
 using Infrastructure;
+using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using OpenAuth.App;
 using OpenAuth.App.Request;
 using OpenAuth.App.Response;
+using OpenAuth.Repository.Domain.DingTalk;
 
 namespace OpenAuth.WebApi.Controllers
 {
@@ -166,7 +168,31 @@ namespace OpenAuth.WebApi.Controllers
         {
             return await _app.LoadByRole(request);
         }
-        
+
+        /// <summary>
+        /// 钉钉扫码登录
+        /// 通过授权码获取钉钉用户信息，自动完成登录或注册
+        /// </summary>
+        /// <param name="authCode">钉钉授权码</param>
+        /// <returns>用户信息</returns>
+        [HttpGet]
+        [AllowAnonymous]
+        public Response<UserView> LoginByDingTalk([FromQuery]DingTalkUserInfo dingTalkUser)
+        {
+            var result = new Response<UserView>();
+            try
+            {
+                result.Data = _app.LoginOrRegisterByDingTalk(dingTalkUser);
+            }
+            catch (Exception ex)
+            {
+                result.Code = 500;
+                result.Message = ex.InnerException?.Message ?? ex.Message;
+            }
+
+            return result;
+        }
+
         /// <summary>
         /// 加载指定部门的用户
         /// 不包含下级部门的用户

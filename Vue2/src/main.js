@@ -47,6 +47,10 @@ Date.prototype.toISOString = function(){
 import { disAutoConnect } from 'vue-plugin-hiprint'
 disAutoConnect();
 
+if (process.env.NODE_ENV === 'development') {
+  new window.VConsole();
+}
+
 Vue.use(ElementUI, { locale })
 Vue.use(VueContextMenu)
 Vue.use(vform)

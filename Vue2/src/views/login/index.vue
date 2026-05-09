@@ -8,6 +8,28 @@
 
       <!-- 右侧表单区 -->
       <div class="login-form-wrap">
+        <!-- 钉钉内置浏览器：显示自动登录状态 -->
+        <div v-if="isDingTalkEnv" class="dingtalk-auto-login">
+          <div class="form-header">
+            <h3 class="title">俊杰机械 MES系统</h3>
+            <p class="subtitle">欢迎回来，请登录您的账号</p>
+          </div>
+          <div class="dingtalk-status">
+            <i class="iconfont icon-dingtalk dingtalk-icon"></i>
+            <p v-if="ddLoading" class="status-text">正在钉钉授权登录中...</p>
+            <p v-else-if="ddError" class="status-text error-text">{{ ddError }}</p>
+            <el-button
+              v-if="ddError"
+              type="primary"
+              class="retry-btn"
+              :loading="ddLoading"
+              @click="handleDingTalkAutoLogin"
+            >
+              重新授权登录
+            </el-button>
+          </div>
+        </div>
+
         <el-form
           class="login-form"
           autoComplete="on"
@@ -20,106 +42,117 @@
             <h3 class="title">俊杰机械 MES系统</h3>
             <p class="subtitle">欢迎回来，请登录您的账号</p>
           </div>
+          <el-tabs v-model="activeTab" type="card">
+            <!-- Tab 1：账号密码登录 -->
+            <el-tab-pane label="账号登录" name="account">
+              <el-form-item prop="username">
+                <el-input
+                  name="username"
+                  type="text"
+                  v-model="loginForm.username"
+                  autoComplete="on"
+                  placeholder="请输入登录账号"
+                >
+                  <i
+                    slot="prefix"
+                    class="iconfont icon-yonghu_zhanghao_wode el-input__icon"
+                  ></i>
+                </el-input>
+              </el-form-item>
 
-          <el-form-item prop="username">
-            <el-input
-              name="username"
-              type="text"
-              v-model="loginForm.username"
-              autoComplete="on"
-              placeholder="请输入登录账号"
-            >
-              <i
-                slot="prefix"
-                class="iconfont icon-yonghu_zhanghao_wode el-input__icon"
-              ></i>
-            </el-input>
-          </el-form-item>
+              <el-form-item prop="password">
+                <el-input
+                  name="password"
+                  :type="pwdType"
+                  v-model="loginForm.password"
+                  autoComplete="on"
+                  placeholder="请输入密码"
+                >
+                  <i
+                    slot="prefix"
+                    class="iconfont icon-mima el-input__icon"
+                  ></i>
+                  <i
+                    slot="suffix"
+                    @click="showPwd"
+                    style="cursor: pointer"
+                    :class="
+                      pwdType === 'password'
+                        ? 'iconfont icon-yincang el-input__icon'
+                        : 'iconfont icon-xianshi_chakan el-input__icon'
+                    "
+                  ></i>
+                </el-input>
+              </el-form-item>
 
-          <el-form-item prop="password">
-            <el-input
-              name="password"
-              :type="pwdType"
-              v-model="loginForm.password"
-              autoComplete="on"
-              placeholder="请输入密码"
-            >
-              <i slot="prefix" class="iconfont icon-mima el-input__icon"></i>
-              <i
-                slot="suffix"
-                @click="showPwd"
-                style="cursor: pointer"
-                :class="
-                  pwdType === 'password'
-                    ? 'iconfont icon-yincang el-input__icon'
-                    : 'iconfont icon-xianshi_chakan el-input__icon'
-                "
-              ></i>
-            </el-input>
-          </el-form-item>
+              <el-form-item prop="code">
+                <div class="code-wrapper">
+                  <el-input
+                    name="code"
+                    @keyup.enter.native="handleLogin"
+                    v-model="loginForm.code"
+                    autoComplete="off"
+                    placeholder="请输入验证码"
+                  >
+                    <i
+                      slot="prefix"
+                      class="iconfont icon-yanzhengma el-input__icon"
+                    ></i>
+                  </el-input>
+                  <identify
+                    v-model="identifyCode"
+                    class="imgCode"
+                    @click.native="changeCode(identifyCode)"
+                  ></identify>
+                </div>
+              </el-form-item>
 
-          <el-form-item prop="code">
-            <div class="code-wrapper">
-              <el-input
-                name="code"
-                @keyup.enter.native="handleLogin"
-                v-model="loginForm.code"
-                autoComplete="off"
-                placeholder="请输入验证码"
-              >
-                <i
-                  slot="prefix"
-                  class="iconfont icon-yanzhengma el-input__icon"
-                ></i>
-              </el-input>
-              <identify
-                v-model="identifyCode"
-                class="imgCode"
-                @click.native="changeCode(identifyCode)"
-              ></identify>
-            </div>
-          </el-form-item>
+              <el-form-item prop="tenantid">
+                <el-select
+                  v-model="tenant"
+                  placeholder="请选择租户"
+                  @change="tenantChange"
+                  style="width: 100%"
+                >
+                  <i
+                    slot="prefix"
+                    class="iconfont icon-yonghuguanli el-input__icon"
+                  ></i>
+                  <el-option
+                    v-for="item in tenants"
+                    :key="item.value"
+                    :label="item.label"
+                    :value="item.value"
+                  >
+                  </el-option>
+                </el-select>
+              </el-form-item>
 
-          <el-form-item prop="tenantid">
-            <el-select
-              v-model="tenant"
-              placeholder="请选择租户"
-              @change="tenantChange"
-              style="width: 100%"
-            >
-              <i
-                slot="prefix"
-                class="iconfont icon-yonghuguanli el-input__icon"
-              ></i>
-              <el-option
-                v-for="item in tenants"
-                :key="item.value"
-                :label="item.label"
-                :value="item.value"
-              >
-              </el-option>
-            </el-select>
-          </el-form-item>
+              <div class="tips" v-if="isIdentityAuth">
+                <router-link to="/oidcRedirect">
+                  <el-badge is-dot class="oauth-badge"
+                    >接口服务器启用了Oauth认证，请点击这里登录</el-badge
+                  >
+                </router-link>
+              </div>
 
-          <div class="tips" v-if="isIdentityAuth">
-            <router-link to="/oidcRedirect">
-              <el-badge is-dot class="oauth-badge"
-                >接口服务器启用了Oauth认证，请点击这里登录</el-badge
-              >
-            </router-link>
-          </div>
-
-          <div class="submit-btn-wrap" v-else>
-            <el-button
-              v-waves
-              type="primary"
-              class="login-btn"
-              :loading="loading"
-              @click.native.prevent="handleLogin"
-            >
-              登 录
-            </el-button>
-          </div>
+              <div class="submit-btn-wrap" v-else>
+                <el-button
+                  v-waves
+                  type="primary"
+                  class="login-btn"
+                  :loading="loading"
+                  @click.native.prevent="handleLogin"
+                >
+                  登 录
+                </el-button>
+              </div>
+            </el-tab-pane>
+            <el-tab-pane label="扫码登录" name="qrcode">
+              <div id="self_defined_element" class="dingtalk-qrcode"></div>
+              <p class="login-tip">请使用钉钉 App 扫码登录</p>
+            </el-tab-pane>
+          </el-tabs>
         </el-form>
       </div>
     </div>
@@ -130,6 +163,7 @@
 import waves from "@/directive/waves";
 import identify from "@/components/ImgVerify";
 import { mapGetters, mapActions } from "vuex";
+import { dingTalkLogin , loginByDingTalk,getUserByCorpCode} from '@/api/dingtalk';
 
 export default {
   name: "login",
@@ -182,8 +216,30 @@ export default {
       loading: false,
       pwdType: "password",
       identifyCode: "",
+      activeTab: "account",
+
+      // 钉钉环境检测
+      isDingTalkEnv: /DingTalk/i.test(navigator.userAgent),
+      ddLoading: false,
+      ddError: '',
     };
   },
+  watch: {
+    // 切换到钉钉 tab 时初始化二维码
+    activeTab(val) {
+      if (val === "qrcode") {
+        this.$nextTick(() => {
+          this.initDingTalkLogin();
+        });
+      }
+    },
+  },
+  mounted() {
+  if (this.isDingTalkEnv) {
+    // 新版JSAPI不需要 dd.ready，直接调用
+    this.handleDingTalkAutoLogin();
+  }
+},
   computed: {
     ...mapGetters(["isIdentityAuth", "tenantid"]),
   },
@@ -194,6 +250,13 @@ export default {
     },
     showPwd() {
       this.pwdType = this.pwdType === "password" ? "" : "password";
+    },
+    // 工具函数：从 URL query 中取参数
+    getQueryParam(name) {
+      console.log("当前 URL：", window.location.href);
+      const search = window.location.search || window.location.href.split('?')[1] || ''
+      const params = new URLSearchParams(search)
+      return params.get(name)
     },
     handleLogin() {
       this.$refs.loginForm.validate((valid) => {
@@ -215,6 +278,132 @@ export default {
     },
     changeCode(val) {
       this.identifyCode = val;
+    },
+    handleDingTalkAutoLogin() {
+      const dd = window.dd;
+
+      if (!dd) {
+        this.ddError = '钉钉 JSAPI 未就绪，请在钉钉 App 内打开此页面';
+        this.ddLoading = false;
+        return;
+      }
+
+      // 从 URL 参数获取 corpId，钉钉会自动替换 $CORPID$
+      const corpId = this.getQueryParam('corpId')
+      if (!corpId) {
+        this.ddError = '未获取到企业 corpId，请确认应用首页地址已配置 $CORPID$ 参数'
+        return
+      }
+
+      this.ddLoading = true;
+      this.ddError = '';
+
+      // 新版钉钉 JSAPI，PC端和移动端通用
+      dd.runtime.permission.requestAuthCode({
+        corpId: corpId,
+        onSuccess: async (result) => {
+          try {
+            const response = await getUserByCorpCode(result.code);
+            console.log('getUserByCorpCode 返回：', JSON.stringify(response));
+            if (!response || response.code !== 200) {
+              throw new Error(response?.message || '获取用户信息失败');
+            }
+
+            const userInfo = response.data;
+
+            const userView = await loginByDingTalk(userInfo);
+            console.log("后端登录成功，返回的用户信息：", userView);
+
+            if (userView.code !== 200) {
+              throw new Error(userView.message || "后端登录失败");
+            }
+            await this.$store.dispatch('Login', {
+              username: userView.data.account,
+              password: userView.data.account,
+            });
+            this.$router.push({ path: '/' });
+          } catch (error) {
+            console.error('钉钉授权登录失败：', error);
+            this.ddError = error.message || '登录失败，请重试';
+          } finally {
+            this.ddLoading = false;
+          }
+        },
+        onFail: (err) => {
+          console.error('获取授权码失败：', err);
+          this.ddError = '获取授权码失败：' + JSON.stringify(err);
+          this.ddLoading = false;
+        },
+      });
+    },
+    initDingTalkLogin() {
+      window.DTFrameLogin(
+        {
+          id: "self_defined_element",
+          width: 300,
+          height: 300,
+        },
+        {
+          redirect_uri: encodeURIComponent('http://172.20.28.107:1803/#/login'),
+          client_id: 'dinglcnwqai4qk310ydt',
+          scope: 'openid corpid',
+          response_type: 'code',
+          state: '1',
+          prompt: 'consent',
+          corpId: 'ding9e3384b3cfea465d',
+        },
+        async (loginResult) => {
+          try {
+            console.log("loginResult 完整内容：", loginResult);
+            const { authCode } = loginResult;
+
+            if (!authCode) {
+              throw new Error("未获取到钉钉授权码 authCode");
+            }
+            console.log("authCode：", authCode);
+
+            const response = await dingTalkLogin(authCode);
+            console.log("钉钉用户信息：", response);
+
+            if (response.code !== 200) {
+              throw new Error(response.message || "获取钉钉用户信息失败");
+            }
+            const userInfo = response.data;
+
+            const userView = await loginByDingTalk(userInfo);
+            console.log("后端登录成功，返回的用户信息：", userView);
+
+            if (userView.code !== 200) {
+              throw new Error(userView.message || "后端登录失败");
+            }
+
+            // 用 account 作为用户名和密码，复用 Login action
+            this.loading = true;
+            this.$store
+              .dispatch("Login", {
+                username: userView.data.account,
+                password: userView.data.account,
+              })
+              .then(() => {
+                this.loading = false;
+                this.$router.push({ path: "/" });
+              })
+              .catch(() => {
+                this.loading = false;
+                this.$message.error("登录失败，请重试");
+              });
+
+          } catch (error) {
+            console.error("钉钉登录异常：", error);
+            this.$message.error(error.message || "钉钉登录失败，请重试");
+          }
+        },
+        (errorMsg) => {
+          // 钉钉扫码组件自身的错误回调（如二维码过期、用户取消等）
+          console.error("钉钉组件错误：", errorMsg);
+          this.$message.error("钉钉登录失败：" + errorMsg);
+        }
+      );
     },
   },
 };
@@ -401,6 +590,43 @@ $base-white: #ffffff;
       }
     }
   }
+  
+  /* 钉钉自动登录状态区域 */
+    .dingtalk-auto-login {
+      .dingtalk-status {
+        display: flex;
+        flex-direction: column;
+        align-items: center;
+        padding: 30px 0;
+
+        .dingtalk-icon {
+          font-size: 56px;
+          color: #1a6cf5;
+          margin-bottom: 20px;
+        }
+
+        .status-text {
+          font-size: 15px;
+          color: $text-secondary;
+          margin: 0 0 20px 0;
+        }
+
+        .error-text {
+          color: #f56c6c;
+        }
+
+        .retry-btn {
+          width: 160px;
+          height: 44px;
+          font-size: 15px;
+          border-radius: 8px;
+          background: $theme-color;
+          border-color: $theme-color;
+        }
+      }
+    }
+
+    .login-form { width: 100%; }
 }
 
 ::v-deep .el-select .el-input__inner {

@@ -9,53 +9,12 @@
 <template>
   <div class="dashboard-editor-container">
 
-    <panel-group></panel-group>
-
-    <el-row :gutter="20">
-
-      <el-col :span="24">
-        <el-card class="box-card">
-          <el-tag type="danger">一些说明</el-tag>
-          <p></p>
-          官方网址：<a href="http://openauth.net.cn">http://openauth.net.cn</a>
-          <p></p>
-          官方博客：<a href="http://www.cnblogs.com/yubaolee/">http://www.cnblogs.com/yubaolee/</a>
-          <p></p>
-          系统默认System账号登录，可以查看所有权限，如果用其他账号（如：admin/test）可以查看相应的授权情况。 数据库密码明文存储，不要问为什么不加密，因为你要问这些账号的密码我也记不住啊O(∩_∩)O
-          <p></p>
-          郑重提示：为了大家体验的一致性，数据库每5分钟还原一次。
-        </el-card>
-      </el-col>
-
-    </el-row>
-    <el-row class="auth-box" :gutter="0">
-      <el-col :span="6" class="auth-col">
-        <div class="auth-head" style="line-height: 50px;"><p>功能</p></div>
-        <div class="auth-item" v-for="(item, index) in auths" :key="index">{{item.name}}</div>
-      </el-col>
-      <el-col :span="6" v-for="good in goods" :key="good.type" class="auth-col" :class="{'active': good.recomment}">
-        <div class="auth-head">
-          <a target="_blank" href="http://www.openauth.net.cn/newpricing/">
-            <span v-if="good.recomment" class="recomment">推荐</span>
-            <p>{{good.name}}<br><span class="subTitle">{{good.subTitle}}</span></p>
-            <el-button type="warning" plain style="width: 100px;" size="mini">选择</el-button>
-          </a>
-        </div>
-        <div class="auth-item" v-for="(item, index) in auths" :key="index">
-          <span v-if="item.belongs.indexOf(good.type) >= 0" class="auth-icon"><i class="el-icon-success"></i></span>
-          <span v-else class="auth-icon"><i class="el-icon-error"></i></span>
-          <span v-if="good.type === 'opensource' && item.opensourceRemark">{{item.opensourceRemark}}</span>
-          <span v-else-if="good.type === 'annual' && item.annualRemark">{{item.annualRemark}}</span>
-          <span v-else-if="good.type === 'lifetime' && item.lifetimeRemark">{{item.lifetimeRemark}}</span>
-        </div>
-      </el-col>
-    </el-row>
+    
   </div>
 </template>
 
 
 <script>
-  import PanelGroup from './components/PanelGroup'
 
   export default {
     name: 'dashboard-admin',
@@ -139,9 +98,6 @@
         }]
       }
     },
-    components: {
-      PanelGroup
-    }
   }
 
 </script>

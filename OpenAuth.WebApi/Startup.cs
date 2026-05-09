@@ -1,12 +1,8 @@
-﻿using System;
-using System.Collections.Generic;
-using System.IO;
-using System.Linq;
-using System.Reflection;
-using Autofac;
+﻿using Autofac;
 using IdentityServer4.AccessTokenValidation;
 using Infrastructure;
 using Infrastructure.Extensions.AutofacManager;
+using Infrastructure.Helpers;
 using Infrastructure.Middleware;
 using Microsoft.AspNetCore.Builder;
 using Microsoft.AspNetCore.DataProtection;
@@ -19,11 +15,18 @@ using Microsoft.Extensions.Logging;
 using Microsoft.OpenApi.Models;
 using Newtonsoft.Json;
 using OpenAuth.App;
+using OpenAuth.App.DingTalk;
 using OpenAuth.App.HostedService;
 using OpenAuth.Repository;
 using OpenAuth.WebApi.Model;
 using SqlSugar;
 using Swashbuckle.AspNetCore.SwaggerUI;
+using System;
+using System.Collections.Generic;
+using System.IO;
+using System.Linq;
+using System.Reflection;
+using System.Threading.Tasks;
 
 namespace OpenAuth.WebApi
 {
@@ -152,6 +155,9 @@ namespace OpenAuth.WebApi
             services.AddDbContext<OpenAuthDBContext>();
 
             services.AddHttpClient();
+
+            services.AddHttpClient<DingTalkApp>();
+            services.Configure<DingTalkOptions>(Configuration.GetSection(DingTalkOptions.SectionName));
 
             services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(Configuration["DataProtection"]));
 

@@ -11,13 +11,13 @@ using System.Threading.Tasks;
 
 namespace OpenAuth.App.Mes.WorkOrder
 {
-    public class MesWorkOrdersApp
+    public class MesWorkOrderApp
     {
         private readonly HttpClient _httpClient;
         private const string ApiUrl = "https://api.patjoin.com.cn:9090/Oas/Other/Mes/Common/GetMesWorkOrderDtoPage";
         private const string DetailApiUrl = "https://api.patjoin.com.cn:9090/Oas/Other/Mes/Common/GetMesWorkDetailsDto";
 
-        public MesWorkOrdersApp(HttpClient httpClient)
+        public MesWorkOrderApp(HttpClient httpClient)
         {
             _httpClient = httpClient;
         }

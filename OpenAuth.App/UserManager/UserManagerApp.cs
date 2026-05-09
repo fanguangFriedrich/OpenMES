@@ -1,8 +1,4 @@
-﻿using System;
-using System.Collections.Generic;
-using System.Linq;
-using System.Threading.Tasks;
-using Castle.Core.Internal;
+﻿using Castle.Core.Internal;
 using Infrastructure;
 using Infrastructure.Extensions;
 using Microsoft.EntityFrameworkCore;
@@ -11,8 +7,13 @@ using OpenAuth.App.Request;
 using OpenAuth.App.Response;
 using OpenAuth.Repository;
 using OpenAuth.Repository.Domain;
+using OpenAuth.Repository.Domain.DingTalk;
 using OpenAuth.Repository.Interface;
 using SqlSugar;
+using System;
+using System.Collections.Generic;
+using System.Linq;
+using System.Threading.Tasks;
 namespace OpenAuth.App
 {
     public class UserManagerApp : SqlSugarBaseApp<SysUser>
@@ -135,6 +136,69 @@ namespace OpenAuth.App
         {
             return await LoadUsers(request, true);
         }
+        /// <summary>
+        /// 钉钉后台任务专用，不依赖HttpContext
+        /// </summary>
+        public void AddOrUpdateFromDingTalk(UpdateUserReq request, string createId)
+        {
+            request.ValidationEntity(u => new { u.Account, u.Name, u.OrganizationIds });
+            if (string.IsNullOrEmpty(request.OrganizationIds))
+                throw new Exception("请为用户分配机构");
+
+            SysUser requser = request;
+            requser.CreateId = createId; // 直接传入，不走 _auth
+
+            SugarClient.Ado.BeginTran();
+            try
+            {
+                if (string.IsNullOrEmpty(request.Id))
+                {
+                    if (SugarClient.Queryable<SysUser>().Any(u => u.Account == request.Account))
+                    {
+                        throw new Exception("用户账号已存在");
+                    }
+                    if (string.IsNullOrEmpty(requser.Password))
+                    {
+                        requser.Password = requser.Account;
+                    }
+                    requser.CreateTime = DateTime.Now;
+                    Repository.Insert(requser);
+                    request.Id = requser.Id;
+                    requser.BizCode = request.BizCode; // 确保BizCode被赋值
+                }
+                else
+                {
+                    Repository.Update(u => new SysUser
+                    {
+                        Account = requser.Account,
+                        BizCode = requser.BizCode,
+                        Name = requser.Name,
+                        Sex = requser.Sex,
+                        Status = requser.Status,
+                        ParentId = request.ParentId
+                    }, u => u.Id == request.Id);
+
+                    if (!string.IsNullOrEmpty(requser.Password))
+                    {
+                        Repository.Update(u => new SysUser
+                        {
+                            Password = requser.Password
+                        }, u => u.Id == request.Id);
+                    }
+                }
+
+                string[] orgIds = request.OrganizationIds.Split(',').ToArray();
+                _revelanceApp.DeleteBy(Define.USERORG, requser.Id);
+                _revelanceApp.Assign(Define.USERORG, orgIds.ToLookup(u => requser.Id));
+
+                SugarClient.Ado.CommitTran();
+            }
+            catch
+            {
+                SugarClient.Ado.RollbackTran();
+                throw;
+            }
+        }
         public void AddOrUpdate(UpdateUserReq request)
         {
             request.ValidationEntity(u => new { u.Account, u.Name, u.OrganizationIds });
@@ -193,6 +257,37 @@ namespace OpenAuth.App
                                         && ids.Contains(u.FirstId)).ExecuteCommand();
             SugarClient.Deleteable<SysUser>().Where(u => ids.Contains(u.Id)).ExecuteCommand();
             SugarClient.Ado.CommitTran();
+        }
+        /// <summary>
+        /// 根据account删除用户
+        /// </summary>
+        public void DeleteByAccount(string account)
+        {
+            var sysUser = SugarClient.Queryable<SysUser>()
+                .Where(u => u.Account == account)
+                .First();
+
+            if (sysUser == null)
+            {
+                Console.WriteLine($"系统中未找到用户 account={account}，跳过");
+                return;
+            }
+
+            Delete(new string[] { sysUser.Id });
+        }
+        public void DeleteByDingTalkUserId(string dingTalkUserId)
+        {
+            var sysUser = SugarClient.Queryable<SysUser>()
+                .Where(u => u.BizCode == dingTalkUserId)
+                .First();
+
+            if (sysUser == null)
+            {
+                Console.WriteLine($"系统中未找到用户 dingTalkUserId={dingTalkUserId}，跳过");
+                return;
+            }
+
+            Delete(new string[] { sysUser.Id });
         }
         /// <summary>
         /// 修改密码
@@ -338,6 +433,55 @@ namespace OpenAuth.App
             });
 
             return userViews.ToList();
+        }
+
+        /// <summary>
+        /// 钉钉扫码登录：检查用户是否存在，存在则返回，不存在则自动注册
+        /// </summary>
+        /// <param name="dingTalkUserInfo">钉钉用户信息</param>
+        /// <returns>系统用户视图</returns>
+        public UserView LoginOrRegisterByDingTalk(DingTalkUserInfo dingTalkUserInfo)
+        {
+            // 用 UnionId 查找已存在的用户
+            var existingUser = SugarClient.Queryable<SysUser>()
+                .First(u => u.Id == dingTalkUserInfo.UnionId);
+            if (existingUser != null)
+            {
+                // 用户已注册，直接返回
+                return existingUser.MapTo<UserView>();
+            }
+
+            // 用户不存在，自动注册
+            var newUser = new SysUser
+            {
+                Id         = dingTalkUserInfo.UnionId,
+                Account    = dingTalkUserInfo.UnionId, // Account 不能为空，暂用 UnionId
+                Name       = dingTalkUserInfo.Nick,
+                Password   = dingTalkUserInfo.UnionId, // 默认密码，钉钉用户通常不需要密码登录
+                CreateTime = DateTime.Now,
+            };
+
+            // 默认分配的机构 ID
+            const string defaultOrgId = "1ac90a9a-85e8-4bec-ac62-1166365822de";
+
+            SugarClient.Ado.BeginTran();
+            try
+            {
+                Repository.Insert(newUser);
+
+                // 分配默认机构关联（与 AddOrUpdate 保持一致：先删后写）
+                _revelanceApp.DeleteBy(Define.USERORG, newUser.Id);
+                _revelanceApp.Assign(Define.USERORG, new[] { defaultOrgId }.ToLookup(u => newUser.Id));
+
+                SugarClient.Ado.CommitTran();
+            }
+            catch
+            {
+                SugarClient.Ado.RollbackTran();
+                throw;
+            }
+
+            return newUser.MapTo<UserView>();
         }
     }
 }

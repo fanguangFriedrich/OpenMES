@@ -18,11 +18,11 @@ namespace OpenAuth.WebApi.Controllers
     [Route("api/[controller]/[action]")]
     [ApiController]   
     [ApiExplorerSettings(GroupName = "派工单明细_MesWorkOrders")]
-    public class MesWorkOrdersController : ControllerBase
+    public class MesWorkOrderController : ControllerBase
     {
-        private readonly MesWorkOrdersApp _app;
+        private readonly MesWorkOrderApp _app;
 
-        public MesWorkOrdersController(MesWorkOrdersApp app)
+        public MesWorkOrderController(MesWorkOrderApp app)
         {
             _app = app;
         }

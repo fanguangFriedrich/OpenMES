@@ -1,4 +1,4 @@
-import { login, logout, getInfo, getModules, getModulesTree, getOrgs } from '@/api/login'
+import { login, logout, getInfo, getModules, getModulesTree, getOrgs} from '@/api/login'
 import { getToken, setToken, removeToken } from '@/utils/auth'
 import { local } from '@/utils'
 

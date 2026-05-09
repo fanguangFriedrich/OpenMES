@@ -1,11 +1,15 @@
-﻿using System;
-using Autofac.Extensions.DependencyInjection;
+﻿using Autofac.Extensions.DependencyInjection;
 using Infrastructure;
 using Infrastructure.Helpers;
+using Jusoft.DingtalkStream.Core;
 using Microsoft.AspNetCore.Hosting;
 using Microsoft.Extensions.Configuration;
+using Microsoft.Extensions.DependencyInjection;
 using Microsoft.Extensions.Hosting;
 using Microsoft.Extensions.Logging;
+using OpenAuth.App.DingTalk;
+using StackExchange.Redis;
+using System;
 
 namespace OpenAuth.WebApi
 {
@@ -23,8 +27,7 @@ namespace OpenAuth.WebApi
                     | |                                                        
                     |_|                                                        
             -------------------------------------------------------------------
-            Author           :  yubaolee
-            Repository       :  https://gitee.com/dotnetchina/OpenAuth.Net
+            Author           :  Fred Xue
             -------------------------------------------------------------------
             Start Time:{DateTime.Now.ToString("yyyy-MM-dd HH:mm:ss")}");
             CreateHostBuilder(args).Build().Run();
@@ -37,8 +40,24 @@ namespace OpenAuth.WebApi
                     logging.ClearProviders(); //去掉默认的日志
                     // logging.AddLog4Net();
                 })
-                .UseServiceProviderFactory(
-                    new AutofacServiceProviderFactory()) //将默认ServiceProviderFactory指定为AutofacServiceProviderFactory
+                .UseServiceProviderFactory(new AutofacServiceProviderFactory()) //将默认ServiceProviderFactory指定为AutofacServiceProviderFactory
+                .ConfigureServices(services =>
+                {
+                    // 从配置文件读取钉钉参数
+                    var configuration = ConfigHelper.GetConfigRoot();
+                    var clientId = configuration["DingTalk:ClientId"];
+                    var clientSecret = configuration["DingTalk:ClientSecret"];
+
+                    services.AddDingtalkStream(options =>
+                    {
+                        options.ClientId     = clientId;
+                        options.ClientSecret = clientSecret;
+                        options.AutoReplySystemMessage = true;
+                    })
+                    .RegisterEventSubscription()
+                    .AddMessageHandler<DingtalkStreamMessageHandler>()
+                    .AddHostServices();
+                })
                 .ConfigureWebHostDefaults(webBuilder =>
                 {
                     var configuration = ConfigHelper.GetConfigRoot();

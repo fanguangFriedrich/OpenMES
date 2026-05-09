@@ -41,7 +41,10 @@ namespace OpenAuth.App.Request
         /// <returns></returns>
         public int Sex { get; set; }
 
-
+        /// <summary>
+        /// 业务对照码（存钉钉userId）
+        /// </summary>
+        public string BizCode { get; set; }
         /// <summary>
         /// 当前状态
         /// </summary>

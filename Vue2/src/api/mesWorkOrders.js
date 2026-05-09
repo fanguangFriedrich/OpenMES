@@ -4,7 +4,7 @@ import request from '@/utils/request'
  */
 export function getMesWorkOrderPage(data) {
   return request({
-    url: '/mesworkorders/getpage',
+    url: '/mesworkorder/getpage',
     method: 'post',
     data,
   })
@@ -15,7 +15,7 @@ export function getMesWorkOrderPage(data) {
  */
 export function getMesWorkOrderAll(data) {
   return request({
-    url: '/mesworkorders/getall',
+    url: '/mesworkorder/getall',
     method: 'post',
     data,
   })
@@ -26,7 +26,7 @@ export function getMesWorkOrderAll(data) {
  */
 export function checkMesWorkOrder(workOrder) {
   return request({
-    url: '/mesworkorders/checkworkorder',
+    url: '/mesworkorder/checkworkorder',
     method: 'get',
     params: { workOrder },
   })
@@ -37,7 +37,7 @@ export function checkMesWorkOrder(workOrder) {
  */
 export function getMesWorkOrderDetail(workOrder) {
   return request({
-    url: '/mesworkorders/getworkorderdetail',
+    url: '/mesworkorder/getworkorderdetail',
     method: 'get',
     params: { workOrder },
   })

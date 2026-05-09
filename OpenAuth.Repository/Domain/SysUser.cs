@@ -60,9 +60,10 @@ namespace OpenAuth.Repository.Domain
          [Description("用户状态")]
         public int Status { get; set; }
         /// <summary>
-	    /// 业务对照码
-	    /// </summary>
-         [Description("业务对照码")]
+        /// 改为用户UserID
+        /// </summary>
+        //[Description("业务对照码")]
+        [Description("用户UserID")]
         public string BizCode { get; set; }
         /// <summary>
 	    /// 经办时间
