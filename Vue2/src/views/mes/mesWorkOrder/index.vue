@@ -57,6 +57,8 @@
         <div class="filter-item filter-actions">
           <el-button type="primary" size="small" icon="el-icon-search" @click="handleSearch">查询</el-button>
           <el-button size="small" icon="el-icon-refresh" @click="handleReset">重置</el-button>
+          <el-button size="small" icon="el-icon-download" @click="handleExport">导出 Excel</el-button>
+          <el-button size="small" icon="el-icon-printer" @click="handlePrint">打印</el-button>
         </div>
       </div>
     </div>
@@ -118,11 +120,58 @@
         />
       </div>
     </div>
+
+    <!-- ===== 打印专用区域（屏幕上隐藏，打印时显示） ===== -->
+    <div id="print-area">
+      <div class="print-header">
+        <h2>派工单列表</h2>
+        <p class="print-meta">
+          打印时间：{{ printTime }}
+          <span v-if="queryParams.Status1 !== ''">
+            &nbsp;&nbsp;状态：{{ getStatusString(queryParams.Status1) }}
+          </span>
+        </p>
+      </div>
+      <table class="print-table">
+        <thead>
+          <tr>
+            <th>序号</th>
+            <th>派工单号</th>
+            <th>派工单流水码</th>
+            <th>派工人员</th>
+            <th>开始日期</th>
+            <th>结束日期</th>
+            <th>状态</th>
+            <th>创建时间</th>
+            <th>创建人</th>
+          </tr>
+        </thead>
+        <tbody>
+          <tr v-for="(row, index) in tableData" :key="index">
+            <td>{{ index + 1 }}</td>
+            <td>{{ row.workOrder }}</td>
+            <td>{{ row.workOrderSerialNo }}</td>
+            <td>{{ row.dispatchWorkers }}</td>
+            <td>{{ formatDate(row.startDate) }}</td>
+            <td>{{ formatDate(row.endDate) }}</td>
+            <td>{{ getStatusString(row.status1) }}</td>
+            <td>{{ formatDate(row.createdTime) }}</td>
+            <td>{{ row.createBy }}</td>
+          </tr>
+        </tbody>
+      </table>
+      <div class="print-footer">
+        共 {{ tableData.length }} 条记录（当前页）
+      </div>
+    </div>
+
   </div>
 </template>
 
 <script>
 import { getMesWorkOrderPage } from '@/api/mesWorkOrders'
+// 注意：需要安装 xlsx 库：npm install xlsx
+import * as XLSX from 'xlsx'
 
 const DEFAULT_WORK_CENTERS = [
   'CCK01', 'CCK02', 'CCK03', 'CNC00', 'DCC00', 'DG01', 'DG02', 'DG03',
@@ -141,6 +190,7 @@ export default {
       total: 0,
       startDateRange: null,
       endDateRange: null,
+      printTime: '',
       queryParams: {
         WorkOrder: '',
         WorkCenters: [...DEFAULT_WORK_CENTERS],
@@ -240,13 +290,72 @@ export default {
       this.fetchData()
     },
 
-    // 跳转详情页，把派工单号作为路由参数传过去
     handleDetail(row) {
       this.$router.push({
         path: '/mes/mesWorkOrder/detail',
         query: {
           workOrder: row.workOrder
         }
+      })
+    },
+
+    // ===== 导出 Excel =====
+    handleExport() {
+      if (!this.tableData.length) {
+        this.$message.warning('暂无数据可导出')
+        return
+      }
+
+      // 构造导出数据（当前页）
+      const exportData = this.tableData.map((row, index) => ({
+        '序号': index + 1,
+        '派工单号': row.workOrder || '',
+        '派工单流水码': row.workOrderSerialNo || '',
+        '派工人员': row.dispatchWorkers || '',
+        '开始日期': this.formatDate(row.startDate),
+        '结束日期': this.formatDate(row.endDate),
+        '状态': this.getStatusString(row.status1),
+        '创建时间': this.formatDate(row.createdTime),
+        '创建人': row.createBy || ''
+      }))
+
+      const ws = XLSX.utils.json_to_sheet(exportData)
+
+      // 设置列宽
+      ws['!cols'] = [
+        { wch: 6 },   // 序号
+        { wch: 18 },  // 派工单号
+        { wch: 18 },  // 流水码
+        { wch: 12 },  // 派工人员
+        { wch: 14 },  // 开始日期
+        { wch: 14 },  // 结束日期
+        { wch: 10 },  // 状态
+        { wch: 16 },  // 创建时间
+        { wch: 12 }   // 创建人
+      ]
+
+      const wb = XLSX.utils.book_new()
+      XLSX.utils.book_append_sheet(wb, ws, '派工单列表')
+
+      const now = new Date()
+      const fileName = `派工单列表_${now.getFullYear()}${String(now.getMonth() + 1).padStart(2, '0')}${String(now.getDate()).padStart(2, '0')}.xlsx`
+      XLSX.writeFile(wb, fileName)
+      this.$message.success('导出成功')
+    },
+
+    // ===== 打印 =====
+    handlePrint() {
+      if (!this.tableData.length) {
+        this.$message.warning('暂无数据可打印')
+        return
+      }
+      // 更新打印时间
+      const now = new Date()
+      const pad = n => String(n).padStart(2, '0')
+      this.printTime = `${now.getFullYear()}-${pad(now.getMonth() + 1)}-${pad(now.getDate())} ${pad(now.getHours())}:${pad(now.getMinutes())}`
+
+      this.$nextTick(() => {
+        window.print()
       })
     },
 
@@ -258,12 +367,12 @@ export default {
     },
 
     getStatusType(status1) {
-      const map = { 0: 'warning', 1: 'success'}
+      const map = { 0: 'warning', 1: 'success' }
       return map[status1] || 'info'
     },
 
     getStatusString(status1) {
-      const map = { 0: '未完成', 1: '已完成'}
+      const map = { 0: '未完成', 1: '已完成' }
       return map[status1] || '未知'
     }
   }
@@ -322,5 +431,126 @@ export default {
   display: flex;
   justify-content: flex-end;
   margin-top: 16px;
+}
+
+/* ===== 打印区域：屏幕上隐藏 ===== */
+#print-area {
+  display: none;
+}
+</style>
+
+<!-- 全局打印样式（不能 scoped，否则选不到框架层级的元素） -->
+<style>
+@media print {
+  /* ── 第一步：隐藏 body 下所有直接子元素 ── */
+  body > * {
+    display: none !important;
+  }
+
+  /* ── 第二步：把 #print-area 的每一层祖先逐级设为可见 ──
+       路径：body > #app > .app-wrapper > section.el-container(垂直) >
+             section.el-container(水平) > .main-container > .app-main >
+             .mes-container > #print-area
+  */
+  body,
+  body > #app,
+  body > #app > .app-wrapper,
+  body > #app > .app-wrapper > .el-container,
+  body > #app > .app-wrapper > .el-container > .el-container,
+  body > #app > .app-wrapper > .el-container > .el-container > .main-container,
+  body > #app > .app-wrapper > .el-container > .el-container > .main-container > .app-main,
+  body > #app > .app-wrapper > .el-container > .el-container > .main-container > .app-main > .mes-container {
+    display: block !important;
+    overflow: visible !important;
+    width: 100% !important;
+    height: auto !important;
+    min-height: unset !important;
+    position: static !important;
+    padding: 0 !important;
+    margin: 0 !important;
+    background: #fff !important;
+    box-shadow: none !important;
+    border: none !important;
+  }
+
+  /* ── 第三步：隐藏框架残余元素 ── */
+  .el-header,
+  .sidebar-container,
+  .tags-view-container,
+  .tags-view-wrapper {
+    display: none !important;
+  }
+
+  /* ── 第四步：隐藏 mes-container 内除打印区域外的元素 ── */
+  .mes-container > .filter-panel,
+  .mes-container > .table-wrapper {
+    display: none !important;
+  }
+
+  /* ── 第四步：显示打印区域 ── */
+  #print-area {
+    display: block !important;
+  }
+
+  /* ── 打印内容样式 ── */
+  .print-header {
+    text-align: center;
+    margin-bottom: 16px;
+    padding-bottom: 10px;
+    border-bottom: 2px solid #333;
+  }
+
+  .print-header h2 {
+    font-size: 18pt;
+    margin: 0 0 6px 0;
+    color: #000;
+  }
+
+  .print-meta {
+    font-size: 9pt;
+    color: #555;
+    margin: 0;
+  }
+
+  .print-table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 9pt;
+    color: #000;
+  }
+
+  .print-table th,
+  .print-table td {
+    border: 1px solid #999;
+    padding: 5px 8px;
+    text-align: left;
+    word-break: break-all;
+  }
+
+  .print-table th {
+    background-color: #e8e8e8 !important;
+    font-weight: bold;
+    text-align: center;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .print-table tbody tr:nth-child(even) td {
+    background-color: #f8f8f8 !important;
+    -webkit-print-color-adjust: exact;
+    print-color-adjust: exact;
+  }
+
+  .print-footer {
+    margin-top: 10px;
+    font-size: 9pt;
+    color: #555;
+    text-align: right;
+  }
+
+  @page {
+    size: A4 landscape;
+    margin: 15mm 10mm;
+  }
 }
 </style>
