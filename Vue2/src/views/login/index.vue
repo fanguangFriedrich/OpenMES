@@ -163,7 +163,7 @@
 import waves from "@/directive/waves";
 import identify from "@/components/ImgVerify";
 import { mapGetters, mapActions } from "vuex";
-import { dingTalkLogin , loginByDingTalk,getUserByCorpCode} from '@/api/dingtalk';
+import { loginByDingTalkApp,loginByScanCode} from '@/api/dingtalk';
 
 export default {
   name: "login",
@@ -289,7 +289,8 @@ export default {
       }
 
       // 从 URL 参数获取 corpId，钉钉会自动替换 $CORPID$
-      const corpId = this.getQueryParam('corpId')
+      //const corpId = this.getQueryParam('corpId')
+      const corpId = this.$dingTalk.corpId;
       if (!corpId) {
         this.ddError = '未获取到企业 corpId，请确认应用首页地址已配置 $CORPID$ 参数'
         return
@@ -303,15 +304,7 @@ export default {
         corpId: corpId,
         onSuccess: async (result) => {
           try {
-            const response = await getUserByCorpCode(result.code);
-            console.log('getUserByCorpCode 返回：', JSON.stringify(response));
-            if (!response || response.code !== 200) {
-              throw new Error(response?.message || '获取用户信息失败');
-            }
-
-            const userInfo = response.data;
-
-            const userView = await loginByDingTalk(userInfo);
+            const userView = await loginByDingTalkApp(result.code);
             console.log("后端登录成功，返回的用户信息：", userView);
 
             if (userView.code !== 200) {
@@ -345,12 +338,12 @@ export default {
         },
         {
           redirect_uri: encodeURIComponent('http://172.20.28.107:1803/#/login'),
-          client_id: 'dinglcnwqai4qk310ydt',
+          client_id: this.$dingTalk.clientId,
           scope: 'openid corpid',
           response_type: 'code',
           state: '1',
           prompt: 'consent',
-          corpId: 'ding9e3384b3cfea465d',
+          corpId: this.$dingTalk.corpId,
         },
         async (loginResult) => {
           try {
@@ -362,15 +355,7 @@ export default {
             }
             console.log("authCode：", authCode);
 
-            const response = await dingTalkLogin(authCode);
-            console.log("钉钉用户信息：", response);
-
-            if (response.code !== 200) {
-              throw new Error(response.message || "获取钉钉用户信息失败");
-            }
-            const userInfo = response.data;
-
-            const userView = await loginByDingTalk(userInfo);
+            const userView = await loginByScanCode(authCode);
             console.log("后端登录成功，返回的用户信息：", userView);
 
             if (userView.code !== 200) {

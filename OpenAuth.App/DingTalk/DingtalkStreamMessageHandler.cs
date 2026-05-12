@@ -11,23 +11,26 @@ using System.Threading.Tasks;
 
 namespace OpenAuth.App.DingTalk
 {
-    public class DingtalkStreamMessageHandler : IDingtalkStreamMessageHandler
+    public class DingTalkStreamMessageHandler : IDingtalkStreamMessageHandler
     {
         private readonly ICacheContext _cache;
         private readonly DingTalkApp _dingTalkApp;
         private readonly UserManagerApp _userManagerApp;
         private readonly OrgManagerApp _orgManagerApp;
+        private readonly DingTalkLoginApp _dingTalkLoginApp;
 
-        public DingtalkStreamMessageHandler(
+        public DingTalkStreamMessageHandler(
             ICacheContext cache,
             DingTalkApp dingTalkApp,
             UserManagerApp userManagerApp,
-            OrgManagerApp orgManagerApp)
+            OrgManagerApp orgManagerApp,
+            DingTalkLoginApp dingTalkLoginApp)
         {
             _cache = cache;
             _dingTalkApp = dingTalkApp;
             _userManagerApp = userManagerApp;
             _orgManagerApp = orgManagerApp;
+            _dingTalkLoginApp=dingTalkLoginApp;
         }
 
         public async Task HandleMessage(MessageEventHanderArgs e)
@@ -88,64 +91,28 @@ namespace OpenAuth.App.DingTalk
 
         private async Task HandleUserAdded(UserChangeEventData data)
         {
-            // 获取所有系统部门
-            var existingOrgs = _orgManagerApp.LoadAll();
-
             foreach (var userId in data.UserId)
             {
                 try
                 {
                     // 1. 获取钉钉用户详情
-                    var userDetail = await _dingTalkApp.GetUserByUserIdAsync(userId);
+                    var userDetail = await _dingTalkApp.GetUserDetailInfoByUserIdAsync(userId);
                     if (userDetail == null)
                     {
                         Console.WriteLine($"获取用户详情为空 userId={userId}");
                         continue;
                     }
 
-                    // 2. 匹配部门：钉钉deptId → 钉钉部门名称 → 系统部门ID
-                    var orgIdArr = new List<string>();
-                    if (userDetail.DeptIdList != null && userDetail.DeptIdList.Count > 0)
-                    {
-                        foreach (var dingDeptId in userDetail.DeptIdList)
-                        {
-                            // 查钉钉部门详情拿部门名称
-                            var dingDept = await _dingTalkApp.GetDeptByIdAsync(dingDeptId);
-                            if (dingDept == null) continue;
+                    var usr= await _dingTalkLoginApp.LoginOrRegisterByDingTalkAsync(userDetail, enableRegister: true);
 
-                            // 用部门名称匹配系统部门
-                            var sysOrg = existingOrgs.FirstOrDefault(o => o.Name == dingDept.Name);
-                            if (sysOrg != null)
-                            {
-                                orgIdArr.Add(sysOrg.Id.ToString());
-                            }
-                        }
+                    if (usr!=null)
+                    {
+                        Console.WriteLine($"新增用户成功: {userDetail.Name}");
                     }
-
-                    // 部门未匹配到则跳过
-                    if (orgIdArr.Count == 0)
+                    else
                     {
-                        Console.WriteLine($"用户 {userDetail.Name} 未匹配到系统部门，跳过");
-                        continue;
+                        Console.WriteLine($"新增用户失败 userId={userId}");
                     }
-
-                    // 3. 构建请求，account = JobNumber_Name
-                    var req = new UpdateUserReq
-                    {
-                        Id = null,
-                        BizCode = userId,
-                        Account = $"{userDetail.JobNumber}_{userDetail.Name}",
-                        Name = userDetail.Name ?? string.Empty,
-                        Password = userDetail.UnionId ?? string.Empty,
-                        OrganizationIds = string.Join(",", orgIdArr),
-                        ParentId = string.Empty,
-                        Status = 0,
-                        Sex = 0,
-                    };
-
-                    // 4. 新增用户
-                    _userManagerApp.AddOrUpdateFromDingTalk(req, createId: "49df1602-f5f3-4d52-afb7-3802da619558");
-                    Console.WriteLine($"新增用户成功: {userDetail.Name}, account: {req.Account}");
                 }
                 catch (Exception ex)
                 {

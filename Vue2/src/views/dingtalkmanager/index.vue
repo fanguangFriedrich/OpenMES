@@ -466,12 +466,13 @@ export default {
               continue
             }
 
+            
             // 7. 构造新用户数据
             const newUser = {
               id: undefined,
               account: account,
               name: dingUser.name || '',
-              password: dingUser.unionId || '',  // 密码 = unionId
+              password: account || '',  // 密码 = unionId
               organizationIds: organizationIds,
               organizations: '',
               parentId: '',

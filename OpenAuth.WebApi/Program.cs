@@ -55,7 +55,7 @@ namespace OpenAuth.WebApi
                         options.AutoReplySystemMessage = true;
                     })
                     .RegisterEventSubscription()
-                    .AddMessageHandler<DingtalkStreamMessageHandler>()
+                    .AddMessageHandler<DingTalkStreamMessageHandler>()
                     .AddHostServices();
                 })
                 .ConfigureWebHostDefaults(webBuilder =>

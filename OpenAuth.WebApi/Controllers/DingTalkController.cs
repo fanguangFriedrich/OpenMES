@@ -12,7 +12,7 @@ using System.Threading.Tasks;
 namespace OpenAuth.WebApi.Controllers
 {
     /// <summary>
-    /// 钉钉登录
+    /// 钉钉
     /// </summary>
     [Route("api/[controller]/[action]")]
     [ApiController]
@@ -41,6 +41,26 @@ namespace OpenAuth.WebApi.Controllers
             try
             {
                 result.Data = await _app.GetUserByAuthCodeAsync(authCode);
+            }
+            catch (Exception ex)
+            {
+                result.Code = 500;
+                result.Message = ex.Message;
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// 获取钉钉配置信息（ClientId、CorpId，不含 ClientSecret）
+        /// </summary>
+        [HttpGet]
+        [AllowAnonymous]
+        public Response<DingTalkOptions> GetDingTalkOptions()
+        {
+            var result = new Response<DingTalkOptions>();
+            try
+            {
+                result.Data = _app.GetDingTalkOptions();
             }
             catch (Exception ex)
             {
@@ -97,12 +117,12 @@ namespace OpenAuth.WebApi.Controllers
         /// </summary>
         [HttpGet]
         [AllowAnonymous]
-        public async Task<Response<DingTalkUserInfo>> GetUserByCorpCode([FromQuery] string code)
+        public async Task<Response<DingTalkUserDetailInfo>> GetUserByCorpCode([FromQuery] string code)
         {
-            var result = new Response<DingTalkUserInfo>();
+            var result = new Response<DingTalkUserDetailInfo>();
             try
             {
-                result.Data = await _app.GetUserByCorpCodeAsync(code);
+                result.Data = await _app.GetUserDetailInfoByCorpCodeAsync(code);
             }
             catch (Exception ex)
             {
@@ -133,17 +153,16 @@ namespace OpenAuth.WebApi.Controllers
         }
 
         /// <summary>
-        /// 通过免登码 + 企业 AccessToken 获取企业用户信息
+        /// 通过 userId 获取用户详细信息
         /// </summary>
         [HttpGet]
-        public async Task<Response<DingTalkUserInfo>> GetCorpUserInfo(
-            [FromQuery] string code,
-            [FromQuery] string corpAccessToken)
+        [AllowAnonymous]
+        public async Task<Response<DingTalkUserDetailInfo>> GetUserByUserId([FromQuery] string userId)
         {
-            var result = new Response<DingTalkUserInfo>();
+            var result = new Response<DingTalkUserDetailInfo>();
             try
             {
-                result.Data = await _app.GetCorpUserInfoAsync(code, corpAccessToken);
+                result.Data = await _app.GetUserDetailInfoByUserIdAsync(userId);
             }
             catch (Exception ex)
             {
@@ -154,16 +173,37 @@ namespace OpenAuth.WebApi.Controllers
         }
 
         /// <summary>
-        /// 通过 userId 获取用户详细信息
+        /// 通过授权码获取用户详细信息
+        /// <param name="authCode">钉钉授权码</param>
         /// </summary>
         [HttpGet]
         [AllowAnonymous]
-        public async Task<Response<DingTalkUserDetailInfo>> GetUserByUserId([FromQuery] string userId)
+        public async Task<Response<DingTalkUserDetailInfo>> GetUserDetailInfoByAuthCode([FromQuery] string authCode)
         {
             var result = new Response<DingTalkUserDetailInfo>();
             try
             {
-                result.Data = await _app.GetUserByUserIdAsync(userId);
+                result.Data = await _app.GetUserDetailInfoByAuthCodeAsync(authCode);
+            }
+            catch (Exception ex)
+            {
+                result.Code = 500;
+                result.Message = ex.Message;
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// 通过 unionId 获取用户 userId
+        /// </summary>
+        [HttpGet]
+        [AllowAnonymous]
+        public async Task<Response<string>> GetUserIdByUnionId([FromQuery] string unionId)
+        {
+            var result = new Response<string>();
+            try
+            {
+                result.Data = await _app.GetUserIdByUnionIdAsync(unionId);
             }
             catch (Exception ex)
             {

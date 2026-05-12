@@ -101,5 +101,34 @@ namespace OpenAuth.App
         {
             return SugarClient.Queryable<SysOrg>().Where(u => orgIds.Contains(u.Id) && u.ChairmanId != null).Select(u => u.ChairmanId).ToArray();
         }
+
+        /// <summary>
+        /// 定时任务专用：绕过登录上下文直接插入部门
+        /// </summary>
+        public string AddOrgFromJob(SysOrg sysOrg)
+        {
+            // 防重：名称+父部门都一样才算重复
+            var exists = SugarClient.Queryable<SysOrg>()
+                .Any(o => o.Name == sysOrg.Name && o.ParentId == sysOrg.ParentId);
+            if (exists) return null;
+
+            try
+            {
+                sysOrg.CreateTime = DateTime.Now;
+                sysOrg.CreateId   = 0;
+                CaculateCascade(sysOrg); // 自动填 CascadeId 和 ParentName
+
+                SugarClient.Ado.BeginTran();
+                Repository.Insert(sysOrg);
+                SugarClient.Ado.CommitTran();
+
+                return sysOrg.Id;
+            }
+            catch
+            {
+                SugarClient.Ado.RollbackTran();
+                throw;
+            }
+        }
     }
 }

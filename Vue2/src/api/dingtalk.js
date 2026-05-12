@@ -1,27 +1,26 @@
 import request from '@/utils/request'
 
-export function dingTalkLogin(authCode) {
-  console.log('DingTalk login with authCode:', authCode);
+/**
+ * 钉钉端内免密登录（通过免登授权码）
+ * @param {string} code 钉钉免登授权码
+ */
+export function loginByDingTalkApp(code) {
   return request({
-    url: '/dingTalk/getUserByAuthCode',
-    method: 'get',
-    params: { authCode }
-  })
-}
-
-export function loginByDingTalk(dingTalkUser) {
-  return request({
-    url: '/users/LoginByDingTalk',
-    method: 'get',
-    params: dingTalkUser  // dingTalkUser 是一个对象，包含 DingTalkUserInfo 的字段
-  })
-}
-
-export function getUserByCorpCode(code) {
-  return request({
-    url: '/dingTalk/getUserByCorpCode',
+    url: '/DingTalkLogin/LoginByDingTalkApp',
     method: 'get',
     params: { code }
+  })
+}
+
+/**
+ * 网页扫码登录（通过 authCode）
+ * @param {string} authCode 钉钉扫码授权码
+ */
+export function loginByScanCode(authCode) {
+  return request({
+    url: '/DingTalkLogin/LoginByScanCode',
+    method: 'get',
+    params: { authCode }
   })
 }
 
@@ -129,5 +128,15 @@ export function getDeptById(deptId) {
     url: '/DingTalk/GetDeptById',
     method: 'get',
     params: { deptId }
+  })
+}
+
+/**
+ * 获取钉钉配置信息（clientId、corpId）
+ */
+export function getDingTalkOptions() {
+  return request({
+    url: '/DingTalk/GetDingTalkOptions',
+    method: 'get'
   })
 }

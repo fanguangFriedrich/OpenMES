@@ -156,8 +156,10 @@ namespace OpenAuth.WebApi
 
             services.AddHttpClient();
 
-            services.AddHttpClient<DingTalkApp>();
+            services.AddHttpClient<DingTalkApp>();            
             services.Configure<DingTalkOptions>(Configuration.GetSection(DingTalkOptions.SectionName));
+
+            services.AddHttpClient<DingTalkLoginApp>();
 
             services.AddDataProtection().PersistKeysToFileSystem(new DirectoryInfo(Configuration["DataProtection"]));
 

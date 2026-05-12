@@ -1,9 +1,10 @@
-﻿using System.Net.Http;
-using System.Text;
-using System.Threading.Tasks;
-using Infrastructure;
+﻿using Infrastructure;
 using OpenAuth.Repository.Domain;
 using Quartz;
+using System;
+using System.Net.Http;
+using System.Text;
+using System.Threading.Tasks;
 
 namespace OpenAuth.App.Jobs
 {
@@ -29,6 +30,11 @@ namespace OpenAuth.App.Jobs
                 using (HttpContent httpContent = new StringContent(job.JobCallParams, Encoding.UTF8))
                 {
                     httpContent.Headers.ContentType = new System.Net.Http.Headers.MediaTypeHeaderValue("application/json");
+
+                    // ★ 创建客户端时设置超时时间为30分钟
+                    var client = _httpClientFactory.CreateClient();
+                    client.Timeout = TimeSpan.FromMinutes(30);
+
                     var result = await _httpClientFactory.CreateClient().PostAsync(job.JobCall, httpContent);
                     _sysLogApp.Add(new SysLog
                     {

@@ -1,7 +1,11 @@
 ﻿using Infrastructure;
+using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OpenAuth.App.DingTalk.Request;
+using OpenAuth.App.Request;
+using OpenAuth.Repository.Domain;
 using OpenAuth.Repository.Domain.DingTalk;
+using SqlSugar;
 using System;
 using System.Collections.Generic;
 using System.Linq;
@@ -17,6 +21,10 @@ namespace OpenAuth.App.DingTalk
     {
         private readonly HttpClient _httpClient;
         private readonly DingTalkOptions _options;
+        private readonly ILogger<DingTalkApp> _logger;
+        private readonly ISqlSugarClient _sqlSugarClient;
+        private readonly OrgManagerApp _orgManagerApp;
+        private readonly UserManagerApp _userManagerApp;
 
         private string? _cachedCorpAccessToken;
         private DateTime _corpAccessTokenExpiry = DateTime.MinValue;
@@ -29,15 +37,26 @@ namespace OpenAuth.App.DingTalk
         private const string CorpTokenApiUrl = "https://api.dingtalk.com/v1.0/oauth2/accessToken";
         private const string CorpUserInfoApiUrl = "https://oapi.dingtalk.com/topapi/v2/user/getuserinfo";
         private const string UserGetApiUrl = "https://oapi.dingtalk.com/topapi/v2/user/get";
+        private const string UserGetByUnionIdApiUrl = "https://oapi.dingtalk.com/topapi/user/getbyunionid";
 
         private const string UserListApiUrl = "https://oapi.dingtalk.com/topapi/v2/user/list";
         private const string DeptListSubApiUrl = "https://oapi.dingtalk.com/topapi/v2/department/listsub";
         private const string DeptGetApiUrl = "https://oapi.dingtalk.com/topapi/v2/department/get";
 
-        public DingTalkApp(HttpClient httpClient, IOptions<DingTalkOptions> options)
+        public DingTalkApp(
+        HttpClient httpClient,
+        IOptions<DingTalkOptions> options,
+        ILogger<DingTalkApp> logger,
+        ISqlSugarClient sqlSugarClient,
+        OrgManagerApp orgManagerApp,
+        UserManagerApp userManagerApp)
         {
-            _httpClient = httpClient;
-            _options = options.Value;
+            _httpClient      = httpClient;
+            _options         = options.Value;
+            _logger          = logger;
+            _sqlSugarClient  = sqlSugarClient;
+            _orgManagerApp   = orgManagerApp;
+            _userManagerApp  = userManagerApp;
         }
 
         private async Task<string> GetValidCorpAccessTokenAsync()
@@ -57,12 +76,44 @@ namespace OpenAuth.App.DingTalk
         }
 
         /// <summary>
+        /// 获取钉钉配置信息（供前端使用，不返回 ClientSecret）
+        /// </summary>
+        public DingTalkOptions GetDingTalkOptions()
+        {
+            return new DingTalkOptions
+            {
+                ClientId = _options.ClientId,
+                CorpId = _options.CorpId,
+                // ClientSecret 不对外暴露
+                ClientSecret = string.Empty
+            };
+        }
+
+        /// <summary>
         /// 通过授权码获取用户信息
         /// </summary>
         public async Task<DingTalkUserInfo> GetUserByAuthCodeAsync(string authCode)
         {
             var accessToken = await GetAccessTokenAsync(authCode);
             return await GetUserInfoAsync(accessToken);
+        }
+
+        /// <summary>
+        /// 通过授权码获取用户详细信息
+        /// <param name="authCode">钉钉授权码</param>
+        /// </summary>
+        public async Task<DingTalkUserDetailInfo> GetUserDetailInfoByAuthCodeAsync(string authCode)
+        {
+            var userInfo = await GetUserByAuthCodeAsync(authCode);
+            string userId= await GetUserIdByUnionIdAsync(userInfo.UnionId);
+            var userDetailInfo = await GetUserDetailInfoByUserIdAsync(userId);
+
+            if(userDetailInfo == null)
+            {
+                throw new Exception("通过授权码获取用户详细信息失败");
+            }
+
+            return userDetailInfo;
         }
 
         /// <summary>
@@ -130,13 +181,38 @@ namespace OpenAuth.App.DingTalk
         /// 通过免登授权码 获取用户信息（企业内部应用模式）
         /// 对应 Java: GET /api/getUserInfo?code=xxx&corpId=xxx
         /// </summary>
-        public async Task<DingTalkUserInfo> GetUserByCorpCodeAsync(string code)
+        public async Task<DingTalkUserDetailInfo> GetUserDetailInfoByCorpCodeAsync(string code)
         {
             if (string.IsNullOrWhiteSpace(code))
                 throw new ArgumentException("Code 不能为空", nameof(code));
 
             var corpAccessToken = await GetValidCorpAccessTokenAsync();
-            return await GetCorpUserInfoAsync(code, corpAccessToken);
+
+            var url = $"{CorpUserInfoApiUrl}?access_token={Uri.EscapeDataString(corpAccessToken)}";
+            var body = new { code = code };
+            var json = JsonSerializer.Serialize(body, new JsonSerializerOptions
+            {
+                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
+            });
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var response = await _httpClient.PostAsync(url, content);
+            response.EnsureSuccessStatusCode();
+            var resultJson = await response.Content.ReadAsStringAsync();
+            Console.WriteLine($"[DingTalk] GetCorpUserInfo 响应: {resultJson}");
+
+            var result = JsonSerializer.Deserialize<DingTalkCorpUserInfoResponse>(resultJson, new JsonSerializerOptions
+            {
+                PropertyNameCaseInsensitive = true
+            });
+
+            if (result == null || result.Errcode != 0)
+                throw new Exception($"获取企业用户信息失败: {result?.Errmsg}");
+
+            // 通过 userId 获取完整用户详情
+            var userId = result.Result?.UserId
+                ?? throw new Exception("获取用户信息失败：userId 为空");
+
+            return await GetUserDetailInfoByUserIdAsync(userId);
         }
 
         /// <summary>
@@ -180,41 +256,6 @@ namespace OpenAuth.App.DingTalk
             var expiry = DateTime.UtcNow.AddSeconds(expireInProp.GetInt32());
 
             return (token, expiry);
-        }
-
-        /// <summary>
-        /// 通过免登码 + 企业 AccessToken 查询用户信息
-        /// 对应 Java: OapiV2UserGetuserinfoRequest / topapi/v2/user/getuserinfo
-        /// </summary>
-        public async Task<DingTalkUserInfo> GetCorpUserInfoAsync(string code, string corpAccessToken)
-        {
-            // 钉钉旧版 API 使用 POST + access_token 作为 query 参数
-            var url = $"{CorpUserInfoApiUrl}?access_token={Uri.EscapeDataString(corpAccessToken)}";
-
-            var body = new { code = code };
-            var json = JsonSerializer.Serialize(body, new JsonSerializerOptions
-            {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-            });
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-            var response = await _httpClient.PostAsync(url, content);
-            response.EnsureSuccessStatusCode();
-
-            var resultJson = await response.Content.ReadAsStringAsync();
-            var result = JsonSerializer.Deserialize<DingTalkCorpUserInfoResponse>(resultJson, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
-
-            if (result == null || result.Errcode != 0)
-                throw new Exception($"获取企业用户信息失败: {result?.Errmsg}");
-
-            return new DingTalkUserInfo
-            {
-                UnionId = result.Result?.UnionId,
-                Nick=result.Result?.Name
-            };
         }
 
         public async Task<List<long>> GetSubDeptIdListAsync(long deptId)
@@ -425,7 +466,7 @@ namespace OpenAuth.App.DingTalk
         /// <summary>
         /// 通过 userId 获取用户详细信息
         /// </summary>
-        public async Task<DingTalkUserDetailInfo> GetUserByUserIdAsync(string userId)
+        public async Task<DingTalkUserDetailInfo> GetUserDetailInfoByUserIdAsync(string userId)
         {
             if (string.IsNullOrWhiteSpace(userId))
                 throw new ArgumentException("userId 不能为空", nameof(userId));
@@ -461,6 +502,39 @@ namespace OpenAuth.App.DingTalk
 
             var result = root.GetProperty("result");
             return ParseUser(result);
+        }
+
+        /// <summary>
+        /// 通过 unionId 获取用户 userId
+        /// </summary>
+        public async Task<string> GetUserIdByUnionIdAsync(string unionId)
+        {
+            if (string.IsNullOrWhiteSpace(unionId))
+                throw new ArgumentException("unionId 不能为空", nameof(unionId));
+
+            var corpAccessToken = await GetValidCorpAccessTokenAsync();
+            var url = $"{UserGetByUnionIdApiUrl}?access_token={corpAccessToken}";
+
+            var body = new { unionid = unionId };
+            var json = JsonSerializer.Serialize(body);
+            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var response = await _httpClient.PostAsync(url, content);
+            var resultJson = await response.Content.ReadAsStringAsync();
+            Console.WriteLine($"[DingTalk] GetUserIdByUnionId unionId={unionId} 响应: {resultJson}");
+
+            if (!response.IsSuccessStatusCode)
+                throw new Exception($"通过unionId获取userId失败 [{response.StatusCode}]: {resultJson}");
+
+            using var doc = JsonDocument.Parse(resultJson);
+            var root = doc.RootElement;
+
+            var errcode = root.GetProperty("errcode").GetInt32();
+            if (errcode != 0)
+                throw new Exception($"通过unionId获取userId失败: {root.GetProperty("errmsg").GetString()}");
+
+            return root.GetProperty("result").GetProperty("userid").GetString()
+                ?? throw new Exception("userid 为空");
         }
 
         /// <summary>
@@ -535,7 +609,7 @@ namespace OpenAuth.App.DingTalk
             foreach (var dept in subDepts)
             {
                 allDepts.Add(dept);
-                await Task.Delay(100);
+                await Task.Delay(500);
                 await TraverseDeptListAsync(dept.DeptId, allDepts);
             }
         }
@@ -572,6 +646,277 @@ namespace OpenAuth.App.DingTalk
                 AutoAddUser = result.TryGetProperty("auto_add_user", out p) && p.GetBoolean(),
                 CreateDeptGroup = result.TryGetProperty("create_dept_group", out p) && p.GetBoolean(),
             };
+        }
+
+        /// <summary>
+        /// 同步钉钉部门到MES系统（支持多层级，多轮扫描）
+        /// </summary>
+        public async Task<(int successCount, int skipCount, int failCount)> SyncDeptToMesAsync()
+        {
+            int successCount = 0, skipCount = 0, failCount = 0;
+
+            // 1. 获取钉钉所有部门
+            var dingDepts = await GetAllDeptListAsync();
+            _logger.LogInformation("钉钉共有部门 {count} 个", dingDepts.Count);
+
+            // 2. 获取MES现有部门
+            var existingOrgs = _orgManagerApp.LoadAll().ToList();
+
+            // 3. 找出MES缺少的钉钉部门
+            var pendingDepts = dingDepts
+                .Where(d => d.ParentId >= 1
+                         && !existingOrgs.Any(o => o.Name == d.Name))
+                .ToList();
+
+            if (!pendingDepts.Any())
+            {
+                _logger.LogInformation("钉钉部门与MES一致，无需同步");
+                return (0, dingDepts.Count, 0);
+            }
+
+            _logger.LogInformation("发现 {count} 个部门需要同步", pendingDepts.Count);
+
+            // 4. 多轮扫描，每轮处理能找到父部门的节点
+            int maxRounds = 20;
+            int round = 0;
+
+            while (pendingDepts.Any() && round < maxRounds)
+            {
+                round++;
+                int addedThisRound = 0;
+                var stillPending = new List<DingTalkDeptInfo>();
+
+                // 每轮重新加载MES部门（含上一轮新增的）
+                existingOrgs = _orgManagerApp.LoadAll().ToList();
+
+                foreach (var dingDept in pendingDepts)
+                {
+                    try
+                    {
+                        string parentId = null;
+                        string parentName = "根节点";
+
+                        if (dingDept.ParentId > 1)
+                        {
+                            // 找钉钉父部门
+                            var parentDingDept = dingDepts
+                                .FirstOrDefault(d => d.DeptId == dingDept.ParentId);
+
+                            if (parentDingDept == null)
+                            {
+                                _logger.LogWarning(
+                                    "[第{round}轮] 「{name}」的父部门(DeptId={pid})在钉钉不存在，放弃",
+                                    round, dingDept.Name, dingDept.ParentId);
+                                failCount++;
+                                continue; // 直接放弃
+                            }
+
+                            // 用父部门名称在MES里匹配
+                            var parentOrg = existingOrgs
+                                .FirstOrDefault(o => o.Name == parentDingDept.Name);
+
+                            if (parentOrg == null)
+                            {
+                                // 父部门本轮还没加进来，留到下一轮
+                                stillPending.Add(dingDept);
+                                continue;
+                            }
+
+                            parentId   = parentOrg.Id;
+                            parentName = parentOrg.Name;
+                        }
+
+                        var newOrg = new SysOrg
+                        {
+                            Name       = dingDept.Name,
+                            ParentId   = parentId,
+                            ParentName = parentName,
+                            Status     = 0,
+                            CascadeId  = string.Empty, // CaculateCascade 自动填
+                            HotKey     = string.Empty,
+                            IconName   = string.Empty,
+                            BizCode    = string.Empty,
+                            CustomCode = string.Empty,
+                            TypeName   = string.Empty,
+                            TypeId     = string.Empty,
+                            SortNo     = 0,
+                        };
+
+                        var newId = _orgManagerApp.AddOrgFromJob(newOrg);
+
+                        if (newId == null)
+                        {
+                            _logger.LogWarning(
+                                "[第{round}轮] 「{name}」防重检测已存在，跳过",
+                                round, dingDept.Name);
+                            skipCount++;
+                            continue;
+                        }
+
+                        successCount++;
+                        addedThisRound++;
+                        _logger.LogInformation(
+                            "[第{round}轮] 新增部门：「{name}」→ 父：「{parent}」",
+                            round, dingDept.Name, parentName);
+                    }
+                    catch (Exception ex)
+                    {
+                        _logger.LogError(ex,
+                            "[第{round}轮] 新增部门「{name}」异常", round, dingDept.Name);
+                        failCount++;
+                    }
+                }
+
+                pendingDepts = stillPending;
+                _logger.LogInformation(
+                    "[第{round}轮结束] 本轮新增:{added} 剩余:{left}",
+                    round, addedThisRound, pendingDepts.Count);
+
+                // 本轮一个都没加进去，说明剩余全部因父部门缺失卡住
+                if (addedThisRound == 0 && pendingDepts.Any())
+                {
+                    foreach (var stuck in pendingDepts)
+                    {
+                        _logger.LogWarning(
+                            "部门「{name}」父部门始终不存在于MES，最终放弃", stuck.Name);
+                        failCount++;
+                    }
+                    break;
+                }
+            }
+
+            skipCount = dingDepts.Count - successCount - failCount;
+            _logger.LogInformation(
+                "=== 部门同步完成：新增{s} 跳过{k} 失败{f} 共{round}轮 ===",
+                successCount, skipCount, failCount, round);
+
+            return (successCount, skipCount, failCount);
+        }
+
+        /// <summary>
+        /// 同步钉钉员工到MES系统
+        /// </summary>
+        public async Task<(int successCount, int skipCount, int failCount)> SyncUsersToMesAsync()
+        {
+            int successCount = 0, skipCount = 0, failCount = 0;
+
+            // 1. 获取钉钉所有部门
+            var dingDepts = await GetAllDeptListAsync();
+            _logger.LogInformation("钉钉共有部门 {count} 个", dingDepts.Count);
+
+            // 2. 获取钉钉所有员工（按部门遍历，userId去重）
+            var userMap = new Dictionary<string, DingTalkUserDetailInfo>();
+            foreach (var dept in dingDepts)
+            {
+                try
+                {
+                    var deptUsers = await GetDeptUserListAsync(dept.DeptId);
+                    foreach (var u in deptUsers)
+                    {
+                        if (!string.IsNullOrEmpty(u.UserId) && !userMap.ContainsKey(u.UserId))
+                        {
+                            userMap[u.UserId] = u;
+                        }
+                    }
+                    await Task.Delay(500); // ★ 加这行
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogWarning(ex, "获取部门「{name}」员工失败", dept.Name);
+                    await Task.Delay(1000); // 报错后多等1秒再继续
+                }
+            }
+            _logger.LogInformation("钉钉共有员工 {count} 人", userMap.Count);
+
+            // 3. 获取MES现有用户（直接查库，用于判断重复）
+            var existingUserList = _sqlSugarClient.Queryable<SysUser>()
+                .Where(u => u.Status != -1)
+                .Select(u => new { u.Account, u.BizCode })
+                .ToList();
+
+            // 4. 获取MES现有部门（用于匹配 organizationIds）
+            var existingOrgs = _orgManagerApp.LoadAll().ToList();
+
+            // 5. 逐个同步员工
+            foreach (var kv in userMap)
+            {
+                var dingUser = kv.Value;
+                try
+                {
+                    // account = jobNumber_name（和前端保持一致）
+                    var account = $"{dingUser.JobNumber ?? ""}_{dingUser.Name ?? ""}";
+
+                    // 判断是否已存在（account 或 钉钉userId 任一存在则跳过）
+                    if (existingUserList.Any(u => u.Account == account
+                                               || u.BizCode == dingUser.UserId))
+                    {
+                        _logger.LogInformation("账号「{account}」已存在，跳过", account);
+                        skipCount++;
+                        continue;
+                    }
+
+                    // 匹配部门：钉钉deptIdList → 钉钉部门名称 → MES部门ID
+                    var orgIdArr = new List<string>();
+                    if (dingUser.DeptIdList != null && dingUser.DeptIdList.Count > 0)
+                    {
+                        foreach (var dingDeptId in dingUser.DeptIdList)
+                        {
+                            var dingDept = dingDepts.FirstOrDefault(d => d.DeptId == dingDeptId);
+                            if (dingDept == null) continue;
+
+                            var sysOrg = existingOrgs.FirstOrDefault(o => o.Name == dingDept.Name);
+                            if (sysOrg != null)
+                            {
+                                orgIdArr.Add(sysOrg.Id);
+                            }
+                        }
+                    }
+
+                    // 没有匹配到任何部门则跳过
+                    if (!orgIdArr.Any())
+                    {
+                        _logger.LogWarning("「{name}」未匹配到MES部门，跳过", dingUser.Name);
+                        failCount++;
+                        continue;
+                    }
+
+                    var organizationIds = string.Join(",", orgIdArr);
+
+                    // 构造新用户请求
+                    var newUserReq = new UpdateUserReq
+                    {
+                        Account         = account,
+                        Name            = dingUser.Name    ?? "",
+                        Password        = account,
+                        OrganizationIds = organizationIds,
+                        BizCode         = dingUser.UserId  ?? "",
+                        Status          = 0,
+                        Sex             = 0,
+                        ParentId        =  string.Empty,
+                    };
+
+                    // 复用已有的注册方法，绕过登录上下文
+                    _userManagerApp.LoginOrRegisterAccountFromDingTalk(
+                        newUserReq,
+                        createId: "49df1602-f5f3-4d52-afb7-3802da619558",
+                        enableRegister: true
+                    );
+
+                    successCount++;
+                    _logger.LogInformation("新增员工：「{name}」account={account} 部门={org}",
+                        dingUser.Name, account, organizationIds);
+                }
+                catch (Exception ex)
+                {
+                    _logger.LogError(ex, "同步员工「{name}」失败", dingUser.Name);
+                    failCount++;
+                }
+            }
+
+            _logger.LogInformation("=== 员工同步完成：新增{s} 跳过{k} 失败{f} ===",
+                successCount, skipCount, failCount);
+
+            return (successCount, skipCount, failCount);
         }
     }
 
