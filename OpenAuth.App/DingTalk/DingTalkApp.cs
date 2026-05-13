@@ -1,4 +1,5 @@
 ﻿using Infrastructure;
+using Infrastructure.Helpers;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OpenAuth.App.DingTalk.Request;
@@ -14,6 +15,7 @@ using System.Text;
 using System.Text.Json;
 using System.Text.Json.Serialization;
 using System.Threading.Tasks;
+using JsonHelper = Infrastructure.Helpers.JsonHelper;
 
 namespace OpenAuth.App.DingTalk
 {
@@ -129,20 +131,17 @@ namespace OpenAuth.App.DingTalk
                 grantType = "authorization_code"
             };
 
-            var json = JsonSerializer.Serialize(body, new JsonSerializerOptions
-            {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-            });
+            var content = new StringContent(
+                Infrastructure.Helpers.JsonHelper.SerializeCamelCase(body),
+                Encoding.UTF8,
+                "application/json"
+            );
 
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
             var response = await _httpClient.PostAsync(TokenApiUrl, content);
             response.EnsureSuccessStatusCode();
 
             var resultJson = await response.Content.ReadAsStringAsync();
-            var tokenResponse = JsonSerializer.Deserialize<DingTalkTokenResponse>(resultJson, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
+            var tokenResponse = Infrastructure.Helpers.JsonHelper.Deserialize<DingTalkTokenResponse>(resultJson);
 
             if (tokenResponse == null || string.IsNullOrEmpty(tokenResponse.AccessToken))
                 throw new Exception("获取钉钉 AccessToken 失败");
@@ -162,10 +161,7 @@ namespace OpenAuth.App.DingTalk
             response.EnsureSuccessStatusCode();
 
             var resultJson = await response.Content.ReadAsStringAsync();
-            var userInfo = JsonSerializer.Deserialize<DingTalkUserInfo>(resultJson, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
+            var userInfo = JsonHelper.Deserialize<DingTalkUserInfo>(resultJson);
 
             if (userInfo == null)
                 throw new Exception("获取钉钉用户信息失败");
@@ -189,26 +185,23 @@ namespace OpenAuth.App.DingTalk
             var corpAccessToken = await GetValidCorpAccessTokenAsync();
 
             var url = $"{CorpUserInfoApiUrl}?access_token={Uri.EscapeDataString(corpAccessToken)}";
-            var body = new { code = code };
-            var json = JsonSerializer.Serialize(body, new JsonSerializerOptions
-            {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-            });
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var content = new StringContent(
+                JsonHelper.SerializeCamelCase(new { code }),
+                Encoding.UTF8,
+                "application/json"
+            );
+
             var response = await _httpClient.PostAsync(url, content);
             response.EnsureSuccessStatusCode();
+
             var resultJson = await response.Content.ReadAsStringAsync();
             Console.WriteLine($"[DingTalk] GetCorpUserInfo 响应: {resultJson}");
 
-            var result = JsonSerializer.Deserialize<DingTalkCorpUserInfoResponse>(resultJson, new JsonSerializerOptions
-            {
-                PropertyNameCaseInsensitive = true
-            });
+            var result = JsonHelper.Deserialize<DingTalkCorpUserInfoResponse>(resultJson);
 
             if (result == null || result.Errcode != 0)
                 throw new Exception($"获取企业用户信息失败: {result?.Errmsg}");
 
-            // 通过 userId 获取完整用户详情
             var userId = result.Result?.UserId
                 ?? throw new Exception("获取用户信息失败：userId 为空");
 
@@ -228,11 +221,12 @@ namespace OpenAuth.App.DingTalk
                 corpId = corpId,
                 grantType = "client_credentials"
             };
-            var json = JsonSerializer.Serialize(body, new JsonSerializerOptions
-            {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-            });
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
+
+            var content = new StringContent(
+                JsonHelper.SerializeCamelCase(body),
+                Encoding.UTF8,
+                "application/json"
+            );
 
             _httpClient.DefaultRequestHeaders.Remove("x-acs-dingtalk-access-token");
             var response = await _httpClient.PostAsync(CorpTokenApiUrl, content);
@@ -252,29 +246,22 @@ namespace OpenAuth.App.DingTalk
                 throw new Exception($"响应中无 expireIn 字段: {resultJson}");
 
             var token = tokenProp.GetString() ?? throw new Exception("accessToken 为空");
-            // 直接用接口返回的有效秒数
             var expiry = DateTime.UtcNow.AddSeconds(expireInProp.GetInt32());
 
             return (token, expiry);
         }
 
+
         public async Task<List<long>> GetSubDeptIdListAsync(long deptId)
         {
             var corpAccessToken = await GetValidCorpAccessTokenAsync();
-
-            var body = new
-            {
-                dept_id = deptId
-            };
-
-            var json = JsonSerializer.Serialize(body, new JsonSerializerOptions
-            {
-                PropertyNamingPolicy = JsonNamingPolicy.CamelCase
-            });
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
-
-            // 设置 access_token 到 Query 参数
             var url = $"https://oapi.dingtalk.com/topapi/v2/department/listsubid?access_token={corpAccessToken}";
+
+            var content = new StringContent(
+                JsonHelper.SerializeCamelCase(new { dept_id = deptId }),
+                Encoding.UTF8,
+                "application/json"
+            );
 
             var response = await _httpClient.PostAsync(url, content);
             var resultJson = await response.Content.ReadAsStringAsync();
@@ -298,13 +285,9 @@ namespace OpenAuth.App.DingTalk
             if (!resultProp.TryGetProperty("dept_id_list", out var deptIdListProp))
                 throw new Exception($"result 中无 dept_id_list 字段: {resultJson}");
 
-            var deptIdList = new List<long>();
-            foreach (var item in deptIdListProp.EnumerateArray())
-            {
-                deptIdList.Add(item.GetInt64());
-            }
-
-            return deptIdList;
+            return deptIdListProp.EnumerateArray()
+                .Select(item => item.GetInt64())
+                .ToList();
         }
 
         public async Task TraverseDeptAsync(long deptId, List<long> allDeptIds)
@@ -328,7 +311,6 @@ namespace OpenAuth.App.DingTalk
         {
             var corpAccessToken = await GetValidCorpAccessTokenAsync();
             var url = $"{UserListApiUrl}?access_token={corpAccessToken}";
-
             var allUsers = new List<DingTalkUserDetailInfo>();
             long cursor = 0;
             const int size = 50;
@@ -345,11 +327,10 @@ namespace OpenAuth.App.DingTalk
                     language = "zh_CN"
                 };
 
-                var json = JsonSerializer.Serialize(body);
-                var content = new StringContent(json, Encoding.UTF8, "application/json");
-
+                var content = new StringContent(JsonHelper.Serialize(body), Encoding.UTF8, "application/json");
                 var response = await _httpClient.PostAsync(url, content);
                 var resultJson = await response.Content.ReadAsStringAsync();
+
                 Console.WriteLine($"[DingTalk] GetDeptUserList deptId={deptId} cursor={cursor} 响应: {resultJson}");
 
                 if (!response.IsSuccessStatusCode)
@@ -367,32 +348,27 @@ namespace OpenAuth.App.DingTalk
 
                 var result = root.GetProperty("result");
 
-                // ✅ 先取 has_more
                 hasMore = result.GetProperty("has_more").GetBoolean();
 
-                // ✅ 只有 has_more=true 时才取 next_cursor
                 if (hasMore && result.TryGetProperty("next_cursor", out var nextCursorProp))
-                {
                     cursor = nextCursorProp.GetInt64();
-                }
                 else
-                {
                     hasMore = false;
-                }
 
-                // 解析 list
                 if (result.TryGetProperty("list", out var list))
                 {
-                    if (list.ValueKind == JsonValueKind.Array)
+                    var items = list.ValueKind switch
                     {
-                        foreach (var item in list.EnumerateArray())
-                        {
-                            allUsers.Add(ParseUser(item));
-                        }
-                    }
-                    else if (list.ValueKind == JsonValueKind.Object)
+                        JsonValueKind.Array => list.EnumerateArray(),
+                        JsonValueKind.Object => new[] { list }.Select(x => x),  // 统一成 IEnumerable
+                        _ => Enumerable.Empty<JsonElement>()
+                    };
+
+                    foreach (var item in items)
                     {
-                        allUsers.Add(ParseUser(list));
+                        var user = JsonHelper.Deserialize<DingTalkUserDetailInfo>(item.GetRawText());
+                        if (user is not null)
+                            allUsers.Add(user);
                     }
                 }
 
@@ -431,38 +407,6 @@ namespace OpenAuth.App.DingTalk
             return userDict.Values.ToList();
         }
 
-        private DingTalkUserDetailInfo ParseUser(JsonElement item)
-        {
-            return new DingTalkUserDetailInfo
-            {
-                UserId = item.TryGetProperty("userid", out var p) ? p.GetString() : null,
-                Name = item.TryGetProperty("name", out p) ? p.GetString() : null,
-                Mobile = item.TryGetProperty("mobile", out p) ? p.GetString() : null,
-                Email = item.TryGetProperty("email", out p) ? p.GetString() : null,
-                OrgEmail = item.TryGetProperty("org_email", out p) ? p.GetString() : null,
-                Title = item.TryGetProperty("title", out p) ? p.GetString() : null,
-                JobNumber = item.TryGetProperty("job_number", out p) ? p.GetString() : null,
-                WorkPlace = item.TryGetProperty("work_place", out p) ? p.GetString() : null,
-                Avatar = item.TryGetProperty("avatar", out p) ? p.GetString() : null,
-                UnionId = item.TryGetProperty("unionid", out p) ? p.GetString() : null,
-                Remark = item.TryGetProperty("remark", out p) ? p.GetString() : null,
-                Telephone = item.TryGetProperty("telephone", out p) ? p.GetString() : null,
-                StateCode = item.TryGetProperty("state_code", out p) ? p.GetString() : null,
-                Extension = item.TryGetProperty("extension", out p) ? p.GetString() : null,
-                HiredDate = item.TryGetProperty("hired_date", out p) ? p.GetInt64() : 0,
-                Leader = item.TryGetProperty("leader", out p) && p.GetBoolean(),
-                Boss = item.TryGetProperty("boss", out p) && p.GetBoolean(),
-                Admin = item.TryGetProperty("admin", out p) && p.GetBoolean(),
-                Active = item.TryGetProperty("active", out p) && p.GetBoolean(),
-                ExclusiveAccount = item.TryGetProperty("exclusive_account", out p) && p.GetBoolean(),
-                HideMobile = item.TryGetProperty("hide_mobile", out p) && p.GetBoolean(),
-                DeptIdList = item.TryGetProperty("dept_id_list", out p)
-                    ? p.EnumerateArray().Select(x => x.GetInt64()).ToList()
-                    : null,
-                DeptOrder = item.TryGetProperty("dept_order", out p) ? p.GetInt64() : 0,
-            };
-        }
-
         /// <summary>
         /// 通过 userId 获取用户详细信息
         /// </summary>
@@ -474,14 +418,11 @@ namespace OpenAuth.App.DingTalk
             var corpAccessToken = await GetValidCorpAccessTokenAsync();
             var url = $"{UserGetApiUrl}?access_token={corpAccessToken}";
 
-            var body = new
-            {
-                userid = userId,
-                language = "zh_CN"
-            };
-
-            var json = JsonSerializer.Serialize(body);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var content = new StringContent(
+                JsonHelper.Serialize(new { userid = userId, language = "zh_CN" }),
+                Encoding.UTF8,
+                "application/json"
+            );
 
             var response = await _httpClient.PostAsync(url, content);
             var resultJson = await response.Content.ReadAsStringAsync();
@@ -495,13 +436,10 @@ namespace OpenAuth.App.DingTalk
 
             var errcode = root.GetProperty("errcode").GetInt32();
             if (errcode != 0)
-            {
-                var errmsg = root.GetProperty("errmsg").GetString();
-                throw new Exception($"获取用户详情失败: {errmsg}");
-            }
+                throw new Exception($"获取用户详情失败: {root.GetProperty("errmsg").GetString()}");
 
-            var result = root.GetProperty("result");
-            return ParseUser(result);
+            return JsonHelper.Deserialize<DingTalkUserDetailInfo>(root.GetProperty("result").GetRawText())
+                ?? throw new Exception("解析用户详情失败");
         }
 
         /// <summary>
@@ -515,9 +453,11 @@ namespace OpenAuth.App.DingTalk
             var corpAccessToken = await GetValidCorpAccessTokenAsync();
             var url = $"{UserGetByUnionIdApiUrl}?access_token={corpAccessToken}";
 
-            var body = new { unionid = unionId };
-            var json = JsonSerializer.Serialize(body);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var content = new StringContent(
+                JsonHelper.Serialize(new { unionid = unionId }),
+                Encoding.UTF8,
+                "application/json"
+            );
 
             var response = await _httpClient.PostAsync(url, content);
             var resultJson = await response.Content.ReadAsStringAsync();
@@ -545,15 +485,15 @@ namespace OpenAuth.App.DingTalk
             var corpAccessToken = await GetValidCorpAccessTokenAsync();
             var url = $"{DeptListSubApiUrl}?access_token={corpAccessToken}";
 
-            var bodyObj = new Dictionary<string, object>
-            {
-                { "language", "zh_CN" }
-            };
+            var bodyObj = new Dictionary<string, object> { { "language", "zh_CN" } };
             if (deptId.HasValue)
                 bodyObj["dept_id"] = deptId.Value;
 
-            var json = JsonSerializer.Serialize(bodyObj);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var content = new StringContent(
+                JsonHelper.Serialize(bodyObj),
+                Encoding.UTF8,
+                "application/json"
+            );
 
             var response = await _httpClient.PostAsync(url, content);
             var resultJson = await response.Content.ReadAsStringAsync();
@@ -567,27 +507,12 @@ namespace OpenAuth.App.DingTalk
 
             var errcode = root.GetProperty("errcode").GetInt32();
             if (errcode != 0)
-            {
-                var errmsg = root.GetProperty("errmsg").GetString();
-                throw new Exception($"获取子部门列表失败: {errmsg}");
-            }
+                throw new Exception($"获取子部门列表失败: {root.GetProperty("errmsg").GetString()}");
 
-            var result = root.GetProperty("result");
-            var deptList = new List<DingTalkDeptInfo>();
-
-            foreach (var item in result.EnumerateArray())
-            {
-                deptList.Add(new DingTalkDeptInfo
-                {
-                    DeptId = item.GetProperty("dept_id").GetInt64(),
-                    Name = item.TryGetProperty("name", out var p) ? p.GetString() : null,
-                    ParentId = item.TryGetProperty("parent_id", out p) ? p.GetInt64() : 0,
-                    AutoAddUser = item.TryGetProperty("auto_add_user", out p) && p.GetBoolean(),
-                    CreateDeptGroup = item.TryGetProperty("create_dept_group", out p) && p.GetBoolean(),
-                });
-            }
-
-            return deptList;
+            return root.GetProperty("result").EnumerateArray()
+                .Select(item => JsonHelper.Deserialize<DingTalkDeptInfo>(item.GetRawText()))
+                .Where(d => d is not null)
+                .ToList()!;
         }
 
         /// <summary>
@@ -619,9 +544,11 @@ namespace OpenAuth.App.DingTalk
             var corpAccessToken = await GetValidCorpAccessTokenAsync();
             var url = $"{DeptGetApiUrl}?access_token={corpAccessToken}";
 
-            var body = new { dept_id = deptId, language = "zh_CN" };
-            var json = JsonSerializer.Serialize(body);
-            var content = new StringContent(json, Encoding.UTF8, "application/json");
+            var content = new StringContent(
+                JsonHelper.Serialize(new { dept_id = deptId, language = "zh_CN" }),
+                Encoding.UTF8,
+                "application/json"
+            );
 
             var response = await _httpClient.PostAsync(url, content);
             var resultJson = await response.Content.ReadAsStringAsync();
@@ -637,15 +564,8 @@ namespace OpenAuth.App.DingTalk
             if (errcode != 0)
                 throw new Exception($"获取部门详情失败: {root.GetProperty("errmsg").GetString()}");
 
-            var result = root.GetProperty("result");
-            return new DingTalkDeptInfo
-            {
-                DeptId = result.GetProperty("dept_id").GetInt64(),
-                Name = result.TryGetProperty("name", out var p) ? p.GetString() : null,
-                ParentId = result.TryGetProperty("parent_id", out p) ? p.GetInt64() : 0,
-                AutoAddUser = result.TryGetProperty("auto_add_user", out p) && p.GetBoolean(),
-                CreateDeptGroup = result.TryGetProperty("create_dept_group", out p) && p.GetBoolean(),
-            };
+            return JsonHelper.Deserialize<DingTalkDeptInfo>(root.GetProperty("result").GetRawText())
+                ?? throw new Exception("解析部门详情失败");
         }
 
         /// <summary>
@@ -735,7 +655,7 @@ namespace OpenAuth.App.DingTalk
                             CascadeId  = string.Empty, // CaculateCascade 自动填
                             HotKey     = string.Empty,
                             IconName   = string.Empty,
-                            BizCode    = string.Empty,
+                            BizCode    = dingDept.DeptId.ToString(),
                             CustomCode = string.Empty,
                             TypeName   = string.Empty,
                             TypeId     = string.Empty,

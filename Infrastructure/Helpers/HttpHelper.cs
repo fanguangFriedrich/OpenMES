@@ -116,7 +116,8 @@ namespace Infrastructure.Helpers
                         temp.Add(item.Key, item.Value.ToString());
                     }
                 }
-                else {
+                else
+                {
                     temp.Add(item.Key, "");
                 }
             }

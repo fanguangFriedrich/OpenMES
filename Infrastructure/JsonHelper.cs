@@ -37,7 +37,7 @@ namespace Infrastructure
             return JsonConvert.DeserializeObject<T>(input);
         }
 
-        public T DeserializeByConverter<T>(string input,params JsonConverter[] converter)
+        public T DeserializeByConverter<T>(string input, params JsonConverter[] converter)
         {
             return JsonConvert.DeserializeObject<T>(input, converter);
         }

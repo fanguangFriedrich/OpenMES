@@ -20,10 +20,10 @@ using System.Threading.Tasks;
 using Castle.Core.Internal;
 using Infrastructure.Const;
 using Infrastructure.Extensions;
-using Infrastructure.Helpers;
 using Newtonsoft.Json.Linq;
 using SqlSugar;
 using Yitter.IdGenerator;
+using Infrastructure.Helpers;
 
 namespace OpenAuth.App
 {
