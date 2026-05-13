@@ -1,13 +1,17 @@
-﻿using System;
+﻿using Newtonsoft.Json;
+using Newtonsoft.Json.Converters;
+using System;
 using System.IO;
 using System.Text.Json;
+using System.Text.Json.Serialization.Metadata;
 using System.Threading.Tasks;
 
 namespace Infrastructure.Helpers
 {
     public static class JsonHelper
     {
-        // 使用 MakeReadOnly() 防止外部修改配置
+        #region STJ 配置
+
         public static readonly JsonSerializerOptions DefaultOptions;
         public static readonly JsonSerializerOptions CamelCaseOptions;
 
@@ -16,95 +20,94 @@ namespace Infrastructure.Helpers
             DefaultOptions = new JsonSerializerOptions
             {
                 PropertyNameCaseInsensitive = true,
+                TypeInfoResolver = new DefaultJsonTypeInfoResolver()
             };
-
             CamelCaseOptions = new JsonSerializerOptions
             {
                 PropertyNamingPolicy = JsonNamingPolicy.CamelCase,
                 PropertyNameCaseInsensitive = true,
+                TypeInfoResolver = new DefaultJsonTypeInfoResolver()
             };
-
-            // .NET 8+
             DefaultOptions.MakeReadOnly();
             CamelCaseOptions.MakeReadOnly();
         }
 
-        public static string SerializeCamelCase(object obj)
-            => JsonSerializer.Serialize(obj, CamelCaseOptions);
+        #endregion
 
-        // ── 基础序列化 ──────────────────────────────────────────
+        #region STJ 静态方法（新代码使用）
+
+        public static string SerializeCamelCase(object obj)
+            => System.Text.Json.JsonSerializer.Serialize(obj, CamelCaseOptions);
 
         public static string Serialize(object obj)
-            => JsonSerializer.Serialize(obj, DefaultOptions);
+            => System.Text.Json.JsonSerializer.Serialize(obj, DefaultOptions);
 
-        // 返回 T? 明确告知调用方结果可能为 null
         public static T? Deserialize<T>(string json)
-            => JsonSerializer.Deserialize<T>(json, DefaultOptions);
-
-        // ── 安全版（不抛异常） ──────────────────────────────────
+            => System.Text.Json.JsonSerializer.Deserialize<T>(json, DefaultOptions);
 
         public static bool TrySerialize(object obj, out string result)
         {
-            try
-            {
-                result = Serialize(obj);
-                return true;
-            }
-            catch
-            {
-                result = string.Empty;
-                return false;
-            }
+            try { result = Serialize(obj); return true; }
+            catch { result = string.Empty; return false; }
         }
 
         public static bool TryDeserialize<T>(string json, out T? result)
         {
-            try
-            {
-                result = Deserialize<T>(json);
-                return true;
-            }
-            catch
-            {
-                result = default;
-                return false;
-            }
+            try { result = Deserialize<T>(json); return true; }
+            catch { result = default; return false; }
         }
-
-        // ── 深拷贝 ──────────────────────────────────────────────
 
         public static T? DeepClone<T>(T obj)
-        {
-            var json = Serialize(obj);
-            return Deserialize<T>(json);
-        }
-
-        // ── 合法性校验 ──────────────────────────────────────────
+            => Deserialize<T>(Serialize(obj));
 
         public static bool IsValidJson(string json)
         {
             if (string.IsNullOrWhiteSpace(json)) return false;
-            try
-            {
-                using var doc = JsonDocument.Parse(json);
-                return true;
-            }
-            catch (JsonException)
-            {
-                return false;
-            }
+            try { using var doc = JsonDocument.Parse(json); return true; }
+            catch (System.Text.Json.JsonException) { return false; }
         }
-
-        // ── 异步（适合大对象写入 Stream，如 HTTP Response） ─────
 
         public static async Task<string> SerializeAsync<T>(T obj)
         {
             using var stream = new MemoryStream();
-            await JsonSerializer.SerializeAsync(stream, obj, DefaultOptions);
+            await System.Text.Json.JsonSerializer.SerializeAsync(stream, obj, DefaultOptions);
             return System.Text.Encoding.UTF8.GetString(stream.ToArray());
         }
 
         public static async Task<T?> DeserializeAsync<T>(Stream stream)
-            => await JsonSerializer.DeserializeAsync<T>(stream, DefaultOptions);
+            => await System.Text.Json.JsonSerializer.DeserializeAsync<T>(stream, DefaultOptions);
+
+        #endregion
+
+        #region Newtonsoft 兼容层（旧代码通过 Instance 调用，行为不变）
+
+        /// <summary>
+        /// 兼容旧代码：Infrastructure.JsonHelper.Instance.Serialize(obj)
+        /// 等价于 Infrastructure.Helpers.JsonHelper.Instance.Serialize(obj)
+        /// </summary>
+        public static LegacyJsonHelper Instance { get; } = new LegacyJsonHelper();
+
+        public class LegacyJsonHelper
+        {
+            private static readonly IsoDateTimeConverter DateTimeConverter =
+                new IsoDateTimeConverter { DateTimeFormat = "yyyy-MM-dd HH:mm:ss" };
+
+            public string Serialize(object obj)
+                => JsonConvert.SerializeObject(obj, DateTimeConverter);
+
+            public string SerializeByConverter(object obj, params JsonConverter[] converters)
+                => JsonConvert.SerializeObject(obj, converters);
+
+            public T Deserialize<T>(string input)
+                => JsonConvert.DeserializeObject<T>(input);
+
+            public T DeserializeByConverter<T>(string input, params JsonConverter[] converters)
+                => JsonConvert.DeserializeObject<T>(input, converters);
+
+            public T DeserializeBySetting<T>(string input, JsonSerializerSettings settings)
+                => JsonConvert.DeserializeObject<T>(input, settings);
+        }
+
+        #endregion
     }
 }

@@ -1,6 +1,7 @@
 using System.Linq;
 using System.Text;
 using Infrastructure;
+using Infrastructure.Helpers;
 using Newtonsoft.Json.Linq;
 using OpenAuth.App.Response;
 using OpenAuth.Repository.Domain;

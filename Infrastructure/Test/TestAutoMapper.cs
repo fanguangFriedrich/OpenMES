@@ -1,5 +1,6 @@
 ﻿using System;
 using System.Collections.Generic;
+using Infrastructure.Helpers;
 using NUnit.Framework;
 
 namespace Infrastructure.Test

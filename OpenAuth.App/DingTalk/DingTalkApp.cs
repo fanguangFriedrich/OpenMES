@@ -3,6 +3,7 @@ using Infrastructure.Helpers;
 using Microsoft.Extensions.Logging;
 using Microsoft.Extensions.Options;
 using OpenAuth.App.DingTalk.Request;
+using OpenAuth.App.DingTalk.Response;
 using OpenAuth.App.Request;
 using OpenAuth.Repository.Domain;
 using OpenAuth.Repository.Domain.DingTalk;
@@ -13,9 +14,7 @@ using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
-using System.Text.Json.Serialization;
 using System.Threading.Tasks;
-using JsonHelper = Infrastructure.Helpers.JsonHelper;
 
 namespace OpenAuth.App.DingTalk
 {
@@ -132,7 +131,7 @@ namespace OpenAuth.App.DingTalk
             };
 
             var content = new StringContent(
-                Infrastructure.Helpers.JsonHelper.SerializeCamelCase(body),
+                JsonHelper.SerializeCamelCase(body),
                 Encoding.UTF8,
                 "application/json"
             );
@@ -141,7 +140,7 @@ namespace OpenAuth.App.DingTalk
             response.EnsureSuccessStatusCode();
 
             var resultJson = await response.Content.ReadAsStringAsync();
-            var tokenResponse = Infrastructure.Helpers.JsonHelper.Deserialize<DingTalkTokenResponse>(resultJson);
+            var tokenResponse = JsonHelper.Deserialize<DingTalkTokenResponse>(resultJson);
 
             if (tokenResponse == null || string.IsNullOrEmpty(tokenResponse.AccessToken))
                 throw new Exception("获取钉钉 AccessToken 失败");
@@ -838,30 +837,5 @@ namespace OpenAuth.App.DingTalk
 
             return (successCount, skipCount, failCount);
         }
-    }
-
-    /// <summary>
-    /// 钉钉 Token 接口响应
-    /// </summary>
-    internal class DingTalkTokenResponse
-    {
-        public string AccessToken { get; set; }
-        public string RefreshToken { get; set; }
-        public int ExpireIn { get; set; }
-    }
-
-    /// <summary>
-    /// topapi/v2/user/getuserinfo 外层响应
-    /// </summary>
-    internal class DingTalkCorpUserInfoResponse
-    {
-        [JsonPropertyName("errcode")]
-        public int Errcode { get; set; }
-
-        [JsonPropertyName("errmsg")]
-        public string Errmsg { get; set; }
-
-        [JsonPropertyName("result")]
-        public DingTalkCorpUserInfo Result { get; set; }
     }
 }

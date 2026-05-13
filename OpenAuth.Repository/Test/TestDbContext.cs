@@ -7,6 +7,7 @@ using NUnit.Framework;
 using OpenAuth.Repository.Domain;
 using Microsoft.Extensions.DependencyInjection;
 using OpenAuth.Repository.Interface;
+using Infrastructure.Helpers;
 
 namespace OpenAuth.Repository.Test
 {

@@ -1,6 +1,7 @@
 ﻿using System;
 using Enyim.Caching;
 using Enyim.Caching.Memcached;
+using Infrastructure.Helpers;
 using Microsoft.Extensions.Options;
 using StackExchange.Redis;
 

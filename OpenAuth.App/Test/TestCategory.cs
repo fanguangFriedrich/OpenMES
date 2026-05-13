@@ -7,6 +7,7 @@ using Microsoft.Extensions.DependencyInjection;
 using Moq;
 using OpenAuth.App.Request;
 using OpenAuth.App.SSO;
+using Infrastructure.Helpers;
 
 namespace OpenAuth.App.Test
 {

@@ -8,6 +8,7 @@ using OpenAuth.App.Response;
 using SqlSugar;
 using OpenAuth.App.Request;
 using Microsoft.Extensions.Logging;
+using Infrastructure.Helpers;
 
 namespace OpenAuth.App
 {

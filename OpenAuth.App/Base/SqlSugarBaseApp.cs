@@ -12,6 +12,7 @@ using SqlSugar;
 using Autofac;
 using Infrastructure.Extensions.AutofacManager;
 using MySql.Data.MySqlClient.Memcached;
+using Infrastructure.Helpers;
 
 namespace OpenAuth.App
 {

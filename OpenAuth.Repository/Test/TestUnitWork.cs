@@ -8,6 +8,7 @@ using Microsoft.Extensions.DependencyInjection;
 using MySqlConnector;
 using OpenAuth.Repository.Domain;
 using OpenAuth.Repository.Interface;
+using Infrastructure.Helpers;
 
 namespace OpenAuth.Repository.Test
 {

@@ -1,5 +1,6 @@
 ﻿using System;
 using Infrastructure;
+using Infrastructure.Helpers;
 using log4net;
 using Microsoft.Extensions.DependencyInjection;
 using NUnit.Framework;

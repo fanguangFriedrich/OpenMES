@@ -3,6 +3,7 @@ using System.Linq;
 using Infrastructure;
 using NUnit.Framework;
 using Microsoft.Extensions.DependencyInjection;
+using Infrastructure.Helpers;
 
 namespace OpenAuth.Repository.Test
 {

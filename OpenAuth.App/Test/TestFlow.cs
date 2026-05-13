@@ -9,6 +9,7 @@ using Moq;
 using OpenAuth.App.Request;
 using OpenAuth.App.SSO;
 using Yitter.IdGenerator;
+using Infrastructure.Helpers;
 
 namespace OpenAuth.App.Test
 {

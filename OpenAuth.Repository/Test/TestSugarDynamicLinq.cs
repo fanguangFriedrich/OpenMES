@@ -5,6 +5,7 @@ using NUnit.Framework;
 using Microsoft.Extensions.DependencyInjection;
 using OpenAuth.Repository.Domain;
 using SqlSugar;
+using Infrastructure.Helpers;
 
 namespace OpenAuth.Repository.Test
 {
