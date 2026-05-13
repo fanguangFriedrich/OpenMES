@@ -17,6 +17,7 @@ using Newtonsoft.Json;
 using OpenAuth.App;
 using OpenAuth.App.DingTalk;
 using OpenAuth.App.HostedService;
+using OpenAuth.App.SyncTaskManager;
 using OpenAuth.Repository;
 using OpenAuth.WebApi.Model;
 using SqlSugar;
@@ -154,10 +155,15 @@ namespace OpenAuth.WebApi
             services.AddCors();
             services.AddDbContext<OpenAuthDBContext>();
 
+            services.Configure<DingTalkOptions>(Configuration.GetSection(DingTalkOptions.SectionName));
+            services.AddSingleton<SyncTaskApp>();
             services.AddHttpClient();
 
-            services.AddHttpClient<DingTalkApp>();            
-            services.Configure<DingTalkOptions>(Configuration.GetSection(DingTalkOptions.SectionName));
+            services.AddHttpClient<DingTalkApp>(client =>
+            {
+                client.Timeout = TimeSpan.FromMinutes(10); // 给足时间
+            });
+            
 
             services.AddHttpClient<DingTalkLoginApp>();
 

@@ -140,3 +140,25 @@ export function getDingTalkOptions() {
     method: 'get'
   })
 }
+
+/**
+ * 触发异步同步部门任务，立即返回 taskId
+ */
+export function startSyncAllDeptList() {
+  return request({
+    url: '/DingTalk/StartSyncAllDeptList',
+    method: 'post'
+  })
+}
+
+/**
+ * 轮询同步任务状态
+ * @param {string} taskId 任务ID
+ */
+export function getSyncDeptStatus(taskId) {
+  return request({
+    url: '/DingTalk/GetSyncDeptStatus',
+    method: 'get',
+    params: { taskId }
+  })
+}

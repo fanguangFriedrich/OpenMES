@@ -5,6 +5,8 @@ using Microsoft.AspNetCore.Authorization;
 using Microsoft.AspNetCore.Mvc;
 using OpenAuth.App;
 using OpenAuth.App.Response;
+using OpenAuth.App.SyncTaskManager;
+using OpenAuth.Repository.Domain;
 using System;
 using System.Collections.Generic;
 using System.Threading.Tasks;
@@ -20,10 +22,12 @@ namespace OpenAuth.WebApi.Controllers
     public class DingTalkController : ControllerBase
     {
         private readonly DingTalkApp _app;
+        private readonly SyncTaskApp _syncTaskApp;
 
-        public DingTalkController(DingTalkApp app)
+        public DingTalkController(DingTalkApp app,SyncTaskApp syncTaskApp)
         {
             _app = app;
+            _syncTaskApp = syncTaskApp;
         }
 
         // ─────────────────────────────────────────────
@@ -316,10 +320,56 @@ namespace OpenAuth.WebApi.Controllers
         }
 
         /// <summary>
-        /// 递归获取企业所有部门列表（含详情）
+        /// 触发异步同步任务，立即返回 taskId
+        /// </summary>
+        [HttpPost]
+        public IActionResult StartSyncAllDeptList()
+        {
+            var taskId = _syncTaskApp.CreateTask();
+
+            _ = Task.Run(async () =>
+            {
+                try
+                {
+                    var depts = await _app.GetAllDeptListAsync();
+                    // TODO: 持久化到数据库（如有需要）
+                    _syncTaskApp.SetSuccess(taskId, depts.Count);
+                }
+                catch (Exception ex)
+                {
+                    _syncTaskApp.SetFailed(taskId, ex.Message);
+                }
+            });
+
+            var result = new Response<string>();
+            result.Data = taskId;
+            result.Message = "同步任务已启动";
+            return Ok(result);
+        }
+
+        /// <summary>
+        /// 轮询同步任务状态
         /// </summary>
         [HttpGet]
-        [AllowAnonymous]
+        public IActionResult GetSyncDeptStatus([FromQuery] string taskId)
+        {
+            var result = new Response<SyncTaskState>();
+            var task = _syncTaskApp.Get(taskId);
+            if (task == null)
+            {
+                result.Code = 404;
+                result.Message = "任务不存在";
+                return Ok(result);
+            }
+            result.Data = task;
+            return Ok(result);
+        }
+
+        /// <summary>
+        /// 递归获取企业所有部门列表（含详情）
+        /// 保留原接口，但建议部门数量多时改用上面的异步方式
+        /// </summary>
+        [HttpGet]
         public async Task<Response<List<DingTalkDeptInfo>>> GetAllDeptList()
         {
             var result = new Response<List<DingTalkDeptInfo>>();

@@ -9,11 +9,13 @@ using OpenAuth.Repository.Domain;
 using OpenAuth.Repository.Domain.DingTalk;
 using SqlSugar;
 using System;
+using System.Collections.Concurrent;
 using System.Collections.Generic;
 using System.Linq;
 using System.Net.Http;
 using System.Text;
 using System.Text.Json;
+using System.Threading;
 using System.Threading.Tasks;
 
 namespace OpenAuth.App.DingTalk
@@ -29,6 +31,11 @@ namespace OpenAuth.App.DingTalk
 
         private string? _cachedCorpAccessToken;
         private DateTime _corpAccessTokenExpiry = DateTime.MinValue;
+
+        // 并发控制：同时最多3个请求，避免触发钉钉限流
+        private readonly SemaphoreSlim _throttle = new(3, 3);
+        private const int RetryCount = 3;
+        private const int RetryBaseMs = 1500;
 
         // 用户授权码模式
         private const string TokenApiUrl = "https://api.dingtalk.com/v1.0/oauth2/userAccessToken";
@@ -477,13 +484,58 @@ namespace OpenAuth.App.DingTalk
         }
 
         /// <summary>
-        /// 获取指定父部门下的子部门列表（含部门详情）
+        /// 递归获取企业所有部门列表（含详情）
         /// </summary>
-        public async Task<List<DingTalkDeptInfo>> GetSubDeptListAsync(long? deptId = null)
+        public async Task<List<DingTalkDeptInfo>> GetAllDeptListAsync(long rootDeptId=1)
+        {
+            var allDepts = new ConcurrentBag<DingTalkDeptInfo>();
+            // 全局信号量，控制整棵树的并发请求数
+            var semaphore = new SemaphoreSlim(5);
+
+            await TraverseDeptListAsync(rootDeptId, allDepts, semaphore);
+
+            return allDepts.ToList();
+        }
+
+        private async Task TraverseDeptListAsync(
+    long deptId,
+    ConcurrentBag<DingTalkDeptInfo> allDepts,
+    SemaphoreSlim semaphore)
+        {
+            List<DingTalkDeptInfo> subDepts;
+
+            await semaphore.WaitAsync();
+            try
+            {
+                await Task.Delay(50); // 全局限流保护，可根据钉钉QPS调整
+                subDepts = await GetSubDeptListAsync(deptId);
+            }
+            finally
+            {
+                semaphore.Release();
+            }
+
+            if (subDepts == null || subDepts.Count == 0)
+                return;
+
+            foreach (var dept in subDepts)
+                allDepts.Add(dept); // ConcurrentBag 线程安全
+
+            // 所有子部门并发递归
+            var tasks = subDepts.Select(dept =>
+                TraverseDeptListAsync(dept.DeptId, allDepts, semaphore));
+
+            await Task.WhenAll(tasks);
+        }
+
+        /// <summary>
+        /// 获取指定父部门下的子部门列表（加 CancellationToken，其余逻辑不变）
+        /// </summary>
+        public async Task<List<DingTalkDeptInfo>> GetSubDeptListAsync(
+            long? deptId = null, CancellationToken ct = default)
         {
             var corpAccessToken = await GetValidCorpAccessTokenAsync();
             var url = $"{DeptListSubApiUrl}?access_token={corpAccessToken}";
-
             var bodyObj = new Dictionary<string, object> { { "language", "zh_CN" } };
             if (deptId.HasValue)
                 bodyObj["dept_id"] = deptId.Value;
@@ -494,7 +546,7 @@ namespace OpenAuth.App.DingTalk
                 "application/json"
             );
 
-            var response = await _httpClient.PostAsync(url, content);
+            var response = await _httpClient.PostAsync(url, content, ct); // ← 加 ct
             var resultJson = await response.Content.ReadAsStringAsync();
             Console.WriteLine($"[DingTalk] GetSubDeptList deptId={deptId} 响应: {resultJson}");
 
@@ -503,39 +555,20 @@ namespace OpenAuth.App.DingTalk
 
             using var doc = JsonDocument.Parse(resultJson);
             var root = doc.RootElement;
-
             var errcode = root.GetProperty("errcode").GetInt32();
+
+            // 钉钉限流，抛异常触发上层重试
+            if (errcode == 88 || errcode == 90018)
+                throw new Exception($"钉钉限流 errcode={errcode}，触发重试");
+
             if (errcode != 0)
-                throw new Exception($"获取子部门列表失败: {root.GetProperty("errmsg").GetString()}");
+                throw new Exception(
+                    $"获取子部门列表失败 errcode={errcode}: {root.GetProperty("errmsg").GetString()}");
 
             return root.GetProperty("result").EnumerateArray()
                 .Select(item => JsonHelper.Deserialize<DingTalkDeptInfo>(item.GetRawText()))
                 .Where(d => d is not null)
                 .ToList()!;
-        }
-
-        /// <summary>
-        /// 递归获取企业所有部门列表（含详情）
-        /// </summary>
-        public async Task<List<DingTalkDeptInfo>> GetAllDeptListAsync()
-        {
-            var allDepts = new List<DingTalkDeptInfo>();
-            await TraverseDeptListAsync(1, allDepts);
-            return allDepts;
-        }
-
-        private async Task TraverseDeptListAsync(long deptId, List<DingTalkDeptInfo> allDepts)
-        {
-            var subDepts = await GetSubDeptListAsync(deptId);
-            if (subDepts == null || subDepts.Count == 0)
-                return;
-
-            foreach (var dept in subDepts)
-            {
-                allDepts.Add(dept);
-                await Task.Delay(500);
-                await TraverseDeptListAsync(dept.DeptId, allDepts);
-            }
         }
 
         public async Task<DingTalkDeptInfo> GetDeptByIdAsync(long deptId)
