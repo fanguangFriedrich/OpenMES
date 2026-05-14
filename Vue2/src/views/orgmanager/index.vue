@@ -130,6 +130,7 @@
         :visible.sync="roleUsers.dialogUserResource">
         <selectUsersCom ref="selectUser" v-if="roleUsers.dialogUserResource"
           :hiddenFooter="true" :loginKey="'loginUser'" :users.sync="assignedUserIds"
+          :ignore-auth="true"
           :userNames="roleUsers.rowIndex > -1 && roleUsers.list[roleUsers.rowIndex].map(u => u.name || u.account).join(',')">
         </selectUsersCom>
         <div style="text-align:right;" slot="footer">

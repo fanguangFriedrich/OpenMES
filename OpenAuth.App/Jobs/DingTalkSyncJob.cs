@@ -30,12 +30,14 @@ namespace OpenAuth.App.Jobs
         {
             _logger.LogInformation("=== 钉钉通讯录定时同步开始 {time} ===", DateTime.Now);
 
+            var dingDepts = await _dingTalkApp.GetAllDeptListWithRootAsync();
+
             // 1. 先同步部门
-            var (ds, dk, df) = await _dingTalkApp.SyncDeptToMesAsync();
+            var (ds, dk, df) = await _dingTalkApp.SyncDeptToMesAsync(dingDepts);
             _logger.LogInformation("部门同步：新增{s} 跳过{k} 失败{f}", ds, dk, df);
 
             // 2. 再同步员工（部门必须先同步，员工才能匹配到部门）
-            var (us, uk, uf) = await _dingTalkApp.SyncUsersToMesAsync();
+            var (us, uk, uf) = await _dingTalkApp.SyncUsersToMesAsync(dingDepts);
             _logger.LogInformation("员工同步：新增{s} 跳过{k} 失败{f}", us, uk, uf);
 
             var jobId = context.JobDetail.Key.Name;

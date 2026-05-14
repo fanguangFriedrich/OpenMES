@@ -367,11 +367,15 @@ export default {
 .select-users-wrap {
   .part-box {
     border: none;
+    flex: 0 0 260px;
+    width: 260px;
+    min-width: 260px;
   }
 
   .table-box {
     border: 1px solid #e4e4e4;
     border-left: 0;
+    min-width: 0;
   }
 
   .custom-card {

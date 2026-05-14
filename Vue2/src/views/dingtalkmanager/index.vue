@@ -208,8 +208,7 @@
 import * as orgs from '@/api/orgs'
 import * as login from '@/api/login'
 import * as users from '@/api/users'
-import { getAllDeptList} from '@/api/dingtalk'
-import { getDeptUserList} from '@/api/dingtalk'
+import { getAllDeptList, getDeptById, getDeptUserList } from '@/api/dingtalk'
 import { listToTreeSelect } from '@/utils'
 
 export default {
@@ -285,16 +284,31 @@ export default {
   },
   methods: {
     // ─── 部门 ──────────────────────────────────────────────
+    async loadAllDingTalkDeptList() {
+      const [rootRes, deptRes] = await Promise.all([
+        getDeptById(1),
+        getAllDeptList()
+      ])
+      const deptList = deptRes.data || []
+      const rootDept = rootRes.data
+
+      if (rootDept && rootDept.deptId !== undefined) {
+        const existsRoot = deptList.some(d => String(d.deptId) === String(rootDept.deptId))
+        return existsRoot ? deptList : [rootDept, ...deptList]
+      }
+
+      return deptList
+    },
 
     async fetchAllDeptList() {
       this.loadingDepts = true
       try {
-        const res = await getAllDeptList()
-        if (res.code === 200 || res.code === undefined) {
-          this.deptList = res.data || []
+        const deptList = await this.loadAllDingTalkDeptList()
+        if (deptList) {
+          this.deptList = deptList
           this.$message.success(`成功获取 ${this.deptList.length} 个部门`)
         } else {
-          this.$message.error(res.message || '获取部门列表失败')
+          this.$message.error('获取部门列表失败')
         }
       } catch (e) {
         this.$message.error('请求失败：' + e.message)
@@ -339,35 +353,65 @@ export default {
       try {
         const orgRes = await login.getOrgs()
         let existingOrgs = orgRes.data || []
+        let pendingDepts = [...this.selectedDeptRows]
+        const maxRounds = pendingDepts.length + 1
+        let round = 0
 
-        for (const dept of this.selectedDeptRows) {
-          try {
-            const exists = existingOrgs.some(o => o.name === dept.name)
-            if (exists) { skipCount++; continue }
+        while (pendingDepts.length > 0 && round < maxRounds) {
+          round++
+          let addedThisRound = 0
+          const stillPending = []
 
-            let parentId = ''
-            let parentName = '根节点'
+          for (const dept of pendingDepts) {
+            try {
+              const exists = existingOrgs.some(o => String(o.id) === String(dept.deptId))
+              if (exists) { skipCount++; continue }
 
-            if (dept.parentId && dept.parentId !== 1) {
-              const parentDingDept = this.deptList.find(d => d.deptId === dept.parentId)
-              if (!parentDingDept) { failCount++; continue }
-              const parentOrg = existingOrgs.find(o => o.name === parentDingDept.name)
-              if (!parentOrg) { failCount++; continue }
-              parentId = parentOrg.id
-              parentName = parentOrg.name
+              let parentId = ''
+              let parentName = '根节点'
+
+              if (String(dept.deptId) !== '1' && dept.parentId) {
+                const parentDingDept = this.deptList.find(d => String(d.deptId) === String(dept.parentId))
+                if (!parentDingDept) { failCount++; continue }
+
+                const parentOrg = existingOrgs.find(o =>
+                  o.name === parentDingDept.name || String(o.id) === String(parentDingDept.deptId)
+                )
+                if (!parentOrg) {
+                  stillPending.push(dept)
+                  continue
+                }
+
+                parentId = parentOrg.id
+                parentName = parentOrg.name
+              }
+
+              const newOrg = {
+                id: String(dept.deptId),
+                cascadeId: '',
+                parentName,
+                chairmanId: '',
+                parentId,
+                name: dept.name,
+                status: 0
+              }
+              const res = await orgs.add(newOrg)
+              const newOrgId = res.data?.id || newOrg.id
+              existingOrgs.push({ id: newOrgId, name: dept.name, parentId })
+              successCount++
+              addedThisRound++
+            } catch (e) {
+              console.error(`[同步] 部门「${dept.name}」失败:`, e)
+              failCount++
             }
-
-            const newOrg = {
-              id: undefined, cascadeId: '', parentName,
-              chairmanId: '', parentId, name: dept.name, status: 0
-            }
-            const res = await orgs.add(newOrg)
-            existingOrgs.push({ id: res.data.id, name: dept.name, parentId })
-            successCount++
-          } catch (e) {
-            console.error(`[同步] 部门「${dept.name}」失败:`, e)
-            failCount++
           }
+
+          if (addedThisRound === 0 && stillPending.length > 0) {
+            failCount += stillPending.length
+            break
+          }
+
+          pendingDepts = stillPending
         }
       } catch (e) {
         this.$message.error('获取现有部门失败：' + e.message)
@@ -406,8 +450,7 @@ export default {
         // 1. 先确保部门列表已加载
         if (this.deptList.length === 0) {
           this.fetchProgress = '正在获取部门列表...'
-          const deptRes = await getAllDeptList()
-          this.deptList = deptRes.data || []
+          this.deptList = await this.loadAllDingTalkDeptList()
         }
 
         // 2. 逐个部门查员工
@@ -509,10 +552,10 @@ export default {
             // 3. account = jobNumber_name
             const account = `${dingUser.jobNumber || ''}_${dingUser.name || ''}`
 
-            // 4. 判断账号是否已存在
-            const exists = existingUsers.some(u => u.account === account)
+            // 4. 判断钉钉用户ID是否已存在
+            const exists = existingUsers.some(u => String(u.id) === String(dingUser.userId))
             if (exists) {
-              console.log(`[同步员工] 账号「${account}」已存在，跳过`)
+              console.log(`[同步员工] 钉钉用户ID「${dingUser.userId}」已存在，跳过`)
               skipCount++
               continue
             }
@@ -524,10 +567,10 @@ export default {
               const orgIdArr = []
               for (const dingDeptId of dingUser.deptIdList) {
                 // 从已查询的钉钉部门列表中找到部门名称
-                const dingDept = this.deptList.find(d => d.deptId === dingDeptId)
+                const dingDept = this.deptList.find(d => String(d.deptId) === String(dingDeptId))
                 if (!dingDept) continue
-                // 从系统部门中找到对应部门
-                const sysOrg = existingOrgs.find(o => o.name === dingDept.name)
+                // 从系统部门中找到对应部门，系统部门ID使用钉钉deptId
+                const sysOrg = existingOrgs.find(o => String(o.id) === String(dingDept.deptId))
                 if (sysOrg) orgIdArr.push(sysOrg.id)
               }
               organizationIds = orgIdArr.join(',')
@@ -543,17 +586,16 @@ export default {
             
             // 7. 构造新用户数据
             const newUser = {
-              id: undefined,
+              id: String(dingUser.userId),
               account: account,
               name: dingUser.name || '',
-              password: account || '',  // 密码 = unionId
+              password: account || '',
               organizationIds: organizationIds,
               organizations: '',
               parentId: '',
               description: '',
-              status: 0,
+              status: 1,
               sex: 0,
-              bizCode: dingUser.userId || '',    // 钉钉userId存到bizCode
             }
 
             // 8. 调用接口添加

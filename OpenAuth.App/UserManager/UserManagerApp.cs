@@ -145,9 +145,11 @@ namespace OpenAuth.App
             SysUser requser = request;
             requser.CreateId = _auth.GetCurrentUser().User.Id;
             SugarClient.Ado.BeginTran();
-            if (string.IsNullOrEmpty(request.Id))
+            var isNewUser = string.IsNullOrEmpty(request.Id) ||
+                            !SugarClient.Queryable<SysUser>().Any(u => u.Id == request.Id);
+            if (isNewUser)
             {
-                if (SugarClient.Queryable<SysUser>().Any(u => u.Account == request.Account))
+                if (SugarClient.Queryable<SysUser>().Any(u => u.Account == request.Account && u.Id != request.Id))
                 {
                     throw new Exception("用户账号已存在");
                 }
@@ -156,6 +158,7 @@ namespace OpenAuth.App
                     requser.Password = requser.Account;   //如果客户端没提供密码，默认密码同账号
                 }
                 requser.CreateTime = DateTime.Now;
+                requser.BizCode = string.Empty;
                 Repository.Insert(requser);
                 request.Id = requser.Id; //要把保存后的ID存入view
             }
@@ -164,7 +167,6 @@ namespace OpenAuth.App
                 Repository.Update(u => new SysUser
                 {
                     Account = requser.Account,
-                    BizCode = requser.BizCode,
                     Name = requser.Name,
                     Sex = requser.Sex,
                     Status = requser.Status,
@@ -216,7 +218,7 @@ namespace OpenAuth.App
         public void DeleteByDingTalkUserId(string dingTalkUserId)
         {
             var sysUser = SugarClient.Queryable<SysUser>()
-                .Where(u => u.BizCode == dingTalkUserId)
+                .Where(u => u.Id == dingTalkUserId)
                 .First();
 
             if (sysUser == null)
@@ -454,7 +456,8 @@ namespace OpenAuth.App
         {
             // 1. 先查找用户
             var existingUser = SugarClient.Queryable<SysUser>()
-                .First(u => u.BizCode == request.BizCode && u.Account == request.Account);
+                .First(u => u.Account == request.Account
+                         || (!string.IsNullOrEmpty(request.Id) && u.Id == request.Id));
 
             if (existingUser != null)
             {
@@ -477,48 +480,26 @@ namespace OpenAuth.App
 
                 SysUser requser = request;
                 requser.CreateId = createId;
-                requser.BizCode = request.BizCode;
 
                 SugarClient.Ado.BeginTran();
 
-                if (string.IsNullOrEmpty(request.Id))
+                // 兜底检查，防止并发或历史数据导致账号/Id重复。
+                if (SugarClient.Queryable<SysUser>().Any(u => u.Account == request.Account
+                                                            || (!string.IsNullOrEmpty(request.Id) && u.Id == request.Id)))
                 {
-                    // 兜底检查，防止账号重复
-                    if (SugarClient.Queryable<SysUser>().Any(u => u.Account == request.Account))
-                    {
-                        SugarClient.Ado.CommitTran();
-                        return null;
-                    }
-
-                    if (string.IsNullOrEmpty(requser.Password))
-                    {
-                        requser.Password = requser.Account;
-                    }
-
-                    requser.CreateTime = DateTime.Now;
-                    Repository.Insert(requser);
-                    request.Id = requser.Id;
+                    SugarClient.Ado.CommitTran();
+                    return null;
                 }
-                else
+
+                if (string.IsNullOrEmpty(requser.Password))
                 {
-                    Repository.Update(u => new SysUser
-                    {
-                        Account = requser.Account,
-                        BizCode = requser.BizCode,
-                        Name = requser.Name,
-                        Sex = requser.Sex,
-                        Status = requser.Status,
-                        ParentId = request.ParentId
-                    }, u => u.Id == request.Id);
-
-                    if (!string.IsNullOrEmpty(requser.Password))
-                    {
-                        Repository.Update(u => new SysUser
-                        {
-                            Password = requser.Password
-                        }, u => u.Id == request.Id);
-                    }
+                    requser.Password = requser.Account;
                 }
+
+                requser.CreateTime = DateTime.Now;
+                requser.BizCode = string.Empty;
+                Repository.Insert(requser);
+                request.Id = requser.Id;
 
                 string[] orgIds = request.OrganizationIds.Split(',').ToArray();
                 _revelanceApp.DeleteBy(Define.USERORG, requser.Id);
@@ -528,7 +509,7 @@ namespace OpenAuth.App
 
                 // 4. 创建成功后重新查询返回
                 var newUser = SugarClient.Queryable<SysUser>()
-                    .First(u => u.BizCode == request.BizCode && u.Account == request.Account);
+                    .First(u => u.Account == request.Account);
 
                 return newUser?.MapTo<UserView>();
             }

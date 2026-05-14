@@ -60,8 +60,7 @@ namespace OpenAuth.App.DingTalk
             // 3. 构建请求，account = JobNumber_Name
             var req = new UpdateUserReq
             {
-                Id = null,
-                BizCode = userDetail.UserId,
+                Id = userDetail.UserId,
                 Account = $"{userDetail.JobNumber}_{userDetail.Name}",
                 Name = userDetail.Name ?? string.Empty,
                 Password = userDetail.UnionId ?? string.Empty,

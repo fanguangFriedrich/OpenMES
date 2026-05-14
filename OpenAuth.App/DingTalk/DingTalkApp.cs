@@ -497,6 +497,22 @@ namespace OpenAuth.App.DingTalk
             return allDepts.ToList();
         }
 
+        public async Task<List<DingTalkDeptInfo>> GetAllDeptListWithRootAsync(long rootDeptId = 1)
+        {
+            var allDepts = await GetAllDeptListAsync(rootDeptId);
+
+            if (!allDepts.Any(d => d.DeptId == rootDeptId))
+            {
+                var rootDept = await GetDeptByIdAsync(rootDeptId);
+                allDepts.Insert(0, rootDept);
+            }
+
+            return allDepts
+                .GroupBy(d => d.DeptId)
+                .Select(g => g.First())
+                .ToList();
+        }
+
         private async Task TraverseDeptListAsync(
     long deptId,
     ConcurrentBag<DingTalkDeptInfo> allDepts,
@@ -603,12 +619,15 @@ namespace OpenAuth.App.DingTalk
         /// <summary>
         /// 同步钉钉部门到MES系统（支持多层级，多轮扫描）
         /// </summary>
-        public async Task<(int successCount, int skipCount, int failCount)> SyncDeptToMesAsync()
+        public async Task<(int successCount, int skipCount, int failCount)> SyncDeptToMesAsync(IReadOnlyCollection<DingTalkDeptInfo> preloadedDingDepts = null)
         {
             int successCount = 0, skipCount = 0, failCount = 0;
 
-            // 1. 获取钉钉所有部门
-            var dingDepts = await GetAllDeptListAsync();
+            // 1. 获取钉钉所有部门，包含根部门 deptId=1
+            var dingDepts = (preloadedDingDepts ?? await GetAllDeptListWithRootAsync())
+                .GroupBy(d => d.DeptId)
+                .Select(g => g.First())
+                .ToList();
             _logger.LogInformation("钉钉共有部门 {count} 个", dingDepts.Count);
 
             // 2. 获取MES现有部门
@@ -616,8 +635,7 @@ namespace OpenAuth.App.DingTalk
 
             // 3. 找出MES缺少的钉钉部门
             var pendingDepts = dingDepts
-                .Where(d => d.ParentId >= 1
-                         && !existingOrgs.Any(o => o.Name == d.Name))
+                .Where(d => !existingOrgs.Any(o => o.Id == d.DeptId.ToString()))
                 .ToList();
 
             if (!pendingDepts.Any())
@@ -648,46 +666,30 @@ namespace OpenAuth.App.DingTalk
                         string parentId = null;
                         string parentName = "根节点";
 
-                        if (dingDept.ParentId > 1)
+                        if (dingDept.DeptId != 1)
                         {
-                            // 找钉钉父部门
-                            var parentDingDept = dingDepts
-                                .FirstOrDefault(d => d.DeptId == dingDept.ParentId);
-
-                            if (parentDingDept == null)
-                            {
-                                _logger.LogWarning(
-                                    "[第{round}轮] 「{name}」的父部门(DeptId={pid})在钉钉不存在，放弃",
-                                    round, dingDept.Name, dingDept.ParentId);
-                                failCount++;
-                                continue; // 直接放弃
-                            }
-
-                            // 用父部门名称在MES里匹配
-                            var parentOrg = existingOrgs
-                                .FirstOrDefault(o => o.Name == parentDingDept.Name);
+                            parentId = dingDept.ParentId > 0 ? dingDept.ParentId.ToString() : null;
+                            var parentOrg = existingOrgs.FirstOrDefault(o => o.Id == parentId);
 
                             if (parentOrg == null)
                             {
-                                // 父部门本轮还没加进来，留到下一轮
                                 stillPending.Add(dingDept);
                                 continue;
                             }
 
-                            parentId   = parentOrg.Id;
                             parentName = parentOrg.Name;
                         }
 
                         var newOrg = new SysOrg
                         {
-                            Name       = dingDept.Name,
+                            Name       = dingDept.Name ?? string.Empty,
                             ParentId   = parentId,
                             ParentName = parentName,
                             Status     = 0,
                             CascadeId  = string.Empty, // CaculateCascade 自动填
                             HotKey     = string.Empty,
                             IconName   = string.Empty,
-                            BizCode    = dingDept.DeptId.ToString(),
+                            Id    = dingDept.DeptId.ToString(),
                             CustomCode = string.Empty,
                             TypeName   = string.Empty,
                             TypeId     = string.Empty,
@@ -745,45 +747,69 @@ namespace OpenAuth.App.DingTalk
             return (successCount, skipCount, failCount);
         }
 
+        public async Task<(
+            int deptSuccessCount,
+            int deptSkipCount,
+            int deptFailCount,
+            int userSuccessCount,
+            int userSkipCount,
+            int userFailCount)> SyncContactsToMesAsync()
+        {
+            var dingDepts = await GetAllDeptListWithRootAsync();
+
+            var (deptSuccessCount, deptSkipCount, deptFailCount) = await SyncDeptToMesAsync(dingDepts);
+            var (userSuccessCount, userSkipCount, userFailCount) = await SyncUsersToMesAsync(dingDepts);
+
+            return (deptSuccessCount, deptSkipCount, deptFailCount, userSuccessCount, userSkipCount, userFailCount);
+        }
+
         /// <summary>
         /// 同步钉钉员工到MES系统
         /// </summary>
-        public async Task<(int successCount, int skipCount, int failCount)> SyncUsersToMesAsync()
+        public async Task<(int successCount, int skipCount, int failCount)> SyncUsersToMesAsync(IReadOnlyCollection<DingTalkDeptInfo> preloadedDingDepts = null)
         {
             int successCount = 0, skipCount = 0, failCount = 0;
 
-            // 1. 获取钉钉所有部门
-            var dingDepts = await GetAllDeptListAsync();
+            // 1. 获取钉钉所有部门，定时任务会复用部门同步已拉取的列表，避免重复请求
+            var dingDepts = (preloadedDingDepts ?? await GetAllDeptListWithRootAsync())
+                .GroupBy(d => d.DeptId)
+                .Select(g => g.First())
+                .ToList();
             _logger.LogInformation("钉钉共有部门 {count} 个", dingDepts.Count);
 
             // 2. 获取钉钉所有员工（按部门遍历，userId去重）
-            var userMap = new Dictionary<string, DingTalkUserDetailInfo>();
-            foreach (var dept in dingDepts)
+            var userMap = new ConcurrentDictionary<string, DingTalkUserDetailInfo>();
+            var userFetchSemaphore = new SemaphoreSlim(5);
+            var userFetchTasks = dingDepts.Select(async dept =>
             {
+                await userFetchSemaphore.WaitAsync();
                 try
                 {
                     var deptUsers = await GetDeptUserListAsync(dept.DeptId);
                     foreach (var u in deptUsers)
                     {
-                        if (!string.IsNullOrEmpty(u.UserId) && !userMap.ContainsKey(u.UserId))
+                        if (!string.IsNullOrEmpty(u.UserId))
                         {
-                            userMap[u.UserId] = u;
+                            userMap.TryAdd(u.UserId, u);
                         }
                     }
-                    await Task.Delay(500); // ★ 加这行
                 }
                 catch (Exception ex)
                 {
                     _logger.LogWarning(ex, "获取部门「{name}」员工失败", dept.Name);
-                    await Task.Delay(1000); // 报错后多等1秒再继续
                 }
-            }
+                finally
+                {
+                    userFetchSemaphore.Release();
+                }
+            });
+            await Task.WhenAll(userFetchTasks);
             _logger.LogInformation("钉钉共有员工 {count} 人", userMap.Count);
 
             // 3. 获取MES现有用户（直接查库，用于判断重复）
             var existingUserList = _sqlSugarClient.Queryable<SysUser>()
                 .Where(u => u.Status != -1)
-                .Select(u => new { u.Account, u.BizCode })
+                .Select(u => new { u.Account, u.Id })
                 .ToList();
 
             // 4. 获取MES现有部门（用于匹配 organizationIds）
@@ -798,25 +824,29 @@ namespace OpenAuth.App.DingTalk
                     // account = jobNumber_name（和前端保持一致）
                     var account = $"{dingUser.JobNumber ?? ""}_{dingUser.Name ?? ""}";
 
-                    // 判断是否已存在（account 或 钉钉userId 任一存在则跳过）
-                    if (existingUserList.Any(u => u.Account == account
-                                               || u.BizCode == dingUser.UserId))
+                    // 和前端手动同步保持一致：优先按钉钉 userId 判断是否已存在
+                    if (!string.IsNullOrEmpty(dingUser.UserId)
+                        && existingUserList.Any(u => u.Id == dingUser.UserId))
                     {
                         _logger.LogInformation("账号「{account}」已存在，跳过", account);
                         skipCount++;
                         continue;
                     }
 
-                    // 匹配部门：钉钉deptIdList → 钉钉部门名称 → MES部门ID
+                    if (existingUserList.Any(u => u.Account == account))
+                    {
+                        _logger.LogWarning("账号「{account}」已存在但Id不是钉钉userId，跳过", account);
+                        skipCount++;
+                        continue;
+                    }
+
+                    // 匹配部门：MES部门Id已经使用钉钉deptId，直接按Id匹配
                     var orgIdArr = new List<string>();
                     if (dingUser.DeptIdList != null && dingUser.DeptIdList.Count > 0)
                     {
                         foreach (var dingDeptId in dingUser.DeptIdList)
                         {
-                            var dingDept = dingDepts.FirstOrDefault(d => d.DeptId == dingDeptId);
-                            if (dingDept == null) continue;
-
-                            var sysOrg = existingOrgs.FirstOrDefault(o => o.Name == dingDept.Name);
+                            var sysOrg = existingOrgs.FirstOrDefault(o => o.Id == dingDeptId.ToString());
                             if (sysOrg != null)
                             {
                                 orgIdArr.Add(sysOrg.Id);
@@ -832,7 +862,7 @@ namespace OpenAuth.App.DingTalk
                         continue;
                     }
 
-                    var organizationIds = string.Join(",", orgIdArr);
+                    var organizationIds = string.Join(",", orgIdArr.Distinct());
 
                     // 构造新用户请求
                     var newUserReq = new UpdateUserReq
@@ -841,8 +871,8 @@ namespace OpenAuth.App.DingTalk
                         Name            = dingUser.Name    ?? "",
                         Password        = account,
                         OrganizationIds = organizationIds,
-                        BizCode         = dingUser.UserId  ?? "",
-                        Status          = 0,
+                        Id         = dingUser.UserId  ?? "",
+                        Status          = 1,
                         Sex             = 0,
                         ParentId        =  string.Empty,
                     };

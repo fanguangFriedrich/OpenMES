@@ -71,8 +71,69 @@ namespace OpenAuth.App
                 delOrgIds.AddRange(SugarClient.Queryable<SysOrg>().Where(u => u.CascadeId.Contains(cascadeId)).Select(u => u.Id).ToArray());
             }
 
-            SugarClient.Deleteable<Relevance>().Where(u => u.RelKey == Define.USERORG && delOrgIds.Contains(u.SecondId)).ExecuteCommand();
-            SugarClient.Deleteable<SysOrg>().Where(u => delOrgIds.Contains(u.Id)).ExecuteCommand();
+            delOrgIds = delOrgIds.Distinct().ToList();
+            var delOrgIdSet = delOrgIds.ToHashSet();
+            var allOrgs = SugarClient.Queryable<SysOrg>().Select(u => new SysOrg
+            {
+                Id = u.Id,
+                ParentId = u.ParentId
+            }).ToList();
+            var orgMap = allOrgs.ToDictionary(u => u.Id, u => u);
+
+            string GetMoveTargetOrgId(string orgId)
+            {
+                if (!orgMap.TryGetValue(orgId, out var org)) return null;
+                var parentId = org.ParentId;
+                while (!string.IsNullOrEmpty(parentId) && delOrgIdSet.Contains(parentId))
+                {
+                    parentId = orgMap.TryGetValue(parentId, out var parentOrg) ? parentOrg.ParentId : null;
+                }
+
+                return string.IsNullOrEmpty(parentId) ? null : parentId;
+            }
+
+            SugarClient.Ado.BeginTran();
+            try
+            {
+                var userOrgRelations = SugarClient.Queryable<Relevance>()
+                    .Where(u => u.RelKey == Define.USERORG && delOrgIds.Contains(u.SecondId))
+                    .ToList();
+
+                foreach (var relation in userOrgRelations)
+                {
+                    var targetOrgId = GetMoveTargetOrgId(relation.SecondId);
+                    if (string.IsNullOrEmpty(targetOrgId))
+                    {
+                        SugarClient.Deleteable<Relevance>().Where(u => u.Id == relation.Id).ExecuteCommand();
+                        continue;
+                    }
+
+                    var exists = SugarClient.Queryable<Relevance>().Any(u =>
+                        u.Id != relation.Id &&
+                        u.RelKey == Define.USERORG &&
+                        u.FirstId == relation.FirstId &&
+                        u.SecondId == targetOrgId);
+                    if (exists)
+                    {
+                        SugarClient.Deleteable<Relevance>().Where(u => u.Id == relation.Id).ExecuteCommand();
+                    }
+                    else
+                    {
+                        SugarClient.Updateable<Relevance>()
+                            .SetColumns(u => u.SecondId == targetOrgId)
+                            .Where(u => u.Id == relation.Id)
+                            .ExecuteCommand();
+                    }
+                }
+
+                SugarClient.Deleteable<SysOrg>().Where(u => delOrgIds.Contains(u.Id)).ExecuteCommand();
+                SugarClient.Ado.CommitTran();
+            }
+            catch
+            {
+                SugarClient.Ado.RollbackTran();
+                throw;
+            }
 
         }
 
@@ -107,9 +168,9 @@ namespace OpenAuth.App
         /// </summary>
         public string AddOrgFromJob(SysOrg sysOrg)
         {
-            // 防重：名称+父部门都一样才算重复
+            // 钉钉同步时部门Id使用deptId，防重必须按Id判断。
             var exists = SugarClient.Queryable<SysOrg>()
-                .Any(o => o.Name == sysOrg.Name && o.ParentId == sysOrg.ParentId);
+                .Any(o => o.Id == sysOrg.Id);
             if (exists) return null;
 
             try
