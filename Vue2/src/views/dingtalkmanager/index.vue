@@ -32,9 +32,27 @@
         </div>
       </div>
 
+      <!-- 搜索过滤 -->
+      <div v-if="deptList.length > 0" class="search-bar">
+        <el-input
+          v-model="deptSearchKeyword"
+          placeholder="按部门名称/部门ID/父部门ID搜索"
+          size="small"
+          prefix-icon="el-icon-search"
+          clearable
+          style="width: 260px;"
+        />
+        <el-button
+          size="small"
+          :type="isAllDeptSelected ? 'warning' : 'default'"
+          :icon="isAllDeptSelected ? 'el-icon-minus' : 'el-icon-check'"
+          style="margin-left: 10px;"
+          @click="toggleSelectAllDepts"
+        >{{ isAllDeptSelected ? `取消全选（${selectedDeptRows.length}）` : `全选全部部门（${filteredDeptList.length}）` }}</el-button>
+      </div>
       <el-table
         v-loading="loadingDepts"
-        :data="deptList"
+        :data="pagedDeptList"
         border
         stripe
         size="small"
@@ -61,6 +79,18 @@
         </el-table-column>
       </el-table>
 
+      <div v-if="filteredDeptList.length > 0" class="pagination-bar">
+        <el-pagination
+          background
+          layout="total, sizes, prev, pager, next, jumper"
+          :total="filteredDeptList.length"
+          :page-sizes="[10, 20, 50, 100]"
+          :page-size="deptPageSize"
+          :current-page="deptCurrentPage"
+          @size-change="handleDeptSizeChange"
+          @current-change="handleDeptCurrentChange"
+        />
+      </div>
       <div v-if="deptList.length > 0" class="table-footer">
         共 <strong>{{ deptList.length }}</strong> 个部门，已选 <strong>{{ selectedDeptRows.length }}</strong> 个
       </div>
@@ -191,6 +221,10 @@ export default {
       selectedDeptRows: [],
       loadingDepts: false,
       syncing: false,
+      deptSearchKeyword: '',
+      deptCurrentPage: 1,
+      deptPageSize: 20,
+      isAllDeptSelected: false,
 
       // 员工
       userList: [],
@@ -205,6 +239,21 @@ export default {
     }
   },
   computed: {
+    // 部门搜索过滤
+    filteredDeptList() {
+      const kw = this.deptSearchKeyword.trim().toLowerCase()
+      if (!kw) return this.deptList
+      return this.deptList.filter(d =>
+        (d.name && d.name.toLowerCase().includes(kw)) ||
+        (d.deptId !== undefined && String(d.deptId).includes(kw)) ||
+        (d.parentId !== undefined && String(d.parentId).includes(kw))
+      )
+    },
+    // 部门分页
+    pagedDeptList() {
+      const start = (this.deptCurrentPage - 1) * this.deptPageSize
+      return this.filteredDeptList.slice(start, start + this.deptPageSize)
+    },
     // 员工搜索过滤
     filteredUserList() {
       const kw = this.userSearchKeyword.trim().toLowerCase()
@@ -223,6 +272,11 @@ export default {
   },
   // 搜索关键词变化时重置到第一页，在 watch 中添加
   watch: {
+    deptSearchKeyword() {
+      this.deptCurrentPage = 1
+      this.selectedDeptRows = []
+      this.isAllDeptSelected = false
+    },
     userSearchKeyword() {
       this.userCurrentPage = 1
       this.selectedUserRows = []       // 新增
@@ -250,7 +304,27 @@ export default {
     },
 
     handleDeptSelectionChange(rows) {
-      this.selectedDeptRows = rows
+      const currentPageIds = new Set(this.pagedDeptList.map(d => d.deptId))
+      const otherPageSelected = this.selectedDeptRows.filter(d => !currentPageIds.has(d.deptId))
+      this.selectedDeptRows = [...otherPageSelected, ...rows]
+      this.isAllDeptSelected = this.selectedDeptRows.length === this.filteredDeptList.length
+    },
+    // 全选/取消全选所有部门（跨分页）
+    toggleSelectAllDepts() {
+      if (this.isAllDeptSelected) {
+        this.selectedDeptRows = []
+        this.isAllDeptSelected = false
+      } else {
+        this.selectedDeptRows = [...this.filteredDeptList]
+        this.isAllDeptSelected = true
+      }
+    },
+    handleDeptSizeChange(size) {
+      this.deptPageSize = size
+      this.deptCurrentPage = 1
+    },
+    handleDeptCurrentChange(page) {
+      this.deptCurrentPage = page
     },
 
     async syncSelectedDepts() {
