@@ -3,10 +3,35 @@
     <div class="page-header">
       <div class="page-title">
         <i class="el-icon-office-building title-icon"></i>
-        <span>钉钉通讯录管理</span>
+        <span>{{ currentModuleTitle }}</span>
+      </div>
+      <el-button
+        v-if="activeModule !== 'home'"
+        size="small"
+        icon="el-icon-back"
+        @click="backToHome"
+      >返回主页</el-button>
+    </div>
+
+    <div v-if="activeModule === 'home'" class="module-grid">
+      <div
+        v-for="module in featureModules"
+        :key="module.key"
+        class="module-card"
+        @click="openModule(module.key)"
+      >
+        <div class="module-icon" :class="module.iconClass">
+          <i :class="module.icon"></i>
+        </div>
+        <div class="module-content">
+          <div class="module-title">{{ module.title }}</div>
+          <div class="module-desc">{{ module.desc }}</div>
+        </div>
+        <i class="el-icon-arrow-right module-arrow"></i>
       </div>
     </div>
 
+    <template v-if="activeModule === 'sync'">
     <!-- 部门管理 -->
     <div class="section-card">
       <div class="section-header">
@@ -201,6 +226,80 @@
       </div>
       <el-empty v-if="!loadingUsers && userList.length === 0" description="暂无数据，请点击「查询钉钉公司所有员工」" />
     </div>
+    </template>
+
+    <template v-else-if="activeModule === 'notify'">
+    <!-- 发送钉钉工作通知 -->
+    <div class="section-card">
+      <div class="section-header">
+        <span class="section-title">
+          <i class="el-icon-message"></i> 发送钉钉工作通知
+        </span>
+      </div>
+
+      <el-form class="notify-form" label-width="90px" size="small">
+        <el-form-item label="接收用户">
+          <div class="notify-user-row">
+            <el-button type="primary" icon="el-icon-user" size="small" @click="openNotifyUserDialog">
+              选择MES用户
+            </el-button>
+            <el-button
+              v-if="notificationUserIds.length > 0"
+              type="text"
+              size="small"
+              @click="clearNotifyUsers"
+            >清空</el-button>
+            <span class="notify-user-count">已选择 {{ notificationUserIds.length }} 人</span>
+          </div>
+          <div v-if="notificationUserNames" class="notify-selected-users">
+            {{ notificationUserNames }}
+          </div>
+        </el-form-item>
+
+        <el-form-item label="通知内容">
+          <el-input
+            v-model="notificationContent"
+            type="textarea"
+            :rows="5"
+            maxlength="2000"
+            show-word-limit
+            placeholder="请输入要发送到钉钉的文本工作通知内容"
+          />
+        </el-form-item>
+
+        <el-form-item>
+          <el-button
+            type="success"
+            icon="el-icon-s-promotion"
+            :loading="sendingDingTalkNotification"
+            :disabled="notificationUserIds.length === 0 || !notificationContent.trim()"
+            @click="sendDingTalkTextNotification"
+          >发送工作通知</el-button>
+        </el-form-item>
+      </el-form>
+
+      <el-dialog
+        class="dialog-mini user-dialog"
+        title="选择通知接收用户"
+        :visible.sync="dialogNotifyUsers"
+        width="720px"
+      >
+        <selectUsersCom
+          ref="notifyUserSelector"
+          v-if="dialogNotifyUsers"
+          :hiddenFooter="true"
+          :loginKey="'loginUser'"
+          :ignore-auth="true"
+          :users.sync="notificationUserIds"
+          :userNames.sync="notificationUserNames"
+        />
+        <div slot="footer" style="text-align: right;">
+          <el-button size="small" @click="dialogNotifyUsers = false">取消</el-button>
+          <el-button size="small" type="primary" @click="handleConfirmNotifyUsers">确定</el-button>
+        </div>
+      </el-dialog>
+    </div>
+    </template>
   </div>
 </template>
 
@@ -208,13 +307,35 @@
 import * as orgs from '@/api/orgs'
 import * as login from '@/api/login'
 import * as users from '@/api/users'
-import { getAllDeptList, getDeptById, getDeptUserList } from '@/api/dingtalk'
+import { getAllDeptList, getDeptById, getDeptUserList, sendTextWorkNotification } from '@/api/dingtalk'
 import { listToTreeSelect } from '@/utils'
+import selectUsersCom from '@/components/SelectUsersCom'
 
 export default {
   name: 'dingtalkmanager',
+  components: {
+    selectUsersCom
+  },
   data() {
     return {
+      activeModule: 'home',
+      featureModules: [
+        {
+          key: 'sync',
+          title: '同步钉钉部门和成员',
+          desc: '查询钉钉组织架构与员工，并同步到MES系统。',
+          icon: 'el-icon-refresh',
+          iconClass: 'sync'
+        },
+        {
+          key: 'notify',
+          title: '发送钉钉工作通知',
+          desc: '选择MES系统用户，发送文本钉钉工作通知。',
+          icon: 'el-icon-message',
+          iconClass: 'notify'
+        }
+      ],
+
       // 部门
       deptList: [],
       selectedDeptRows: [],
@@ -235,9 +356,22 @@ export default {
       syncingUsers: false,
       isAllUserSelected: false, // 新增
       fetchProgress: '',
+
+      // 钉钉工作通知
+      dialogNotifyUsers: false,
+      notificationUserIds: [],
+      notificationUserNames: '',
+      notificationContent: '',
+      sendingDingTalkNotification: false,
     }
   },
   computed: {
+    currentModuleTitle() {
+      if (this.activeModule === 'home') return '钉钉管理'
+      const module = this.featureModules.find(item => item.key === this.activeModule)
+      return module ? module.title : '钉钉管理'
+    },
+
     // 部门搜索过滤
     filteredDeptList() {
       const kw = this.deptSearchKeyword.trim().toLowerCase()
@@ -283,6 +417,14 @@ export default {
     }
   },
   methods: {
+    openModule(moduleKey) {
+      this.activeModule = moduleKey
+    },
+
+    backToHome() {
+      this.activeModule = 'home'
+    },
+
     // ─── 部门 ──────────────────────────────────────────────
     async loadAllDingTalkDeptList() {
       const [rootRes, deptRes] = await Promise.all([
@@ -626,6 +768,54 @@ export default {
         duration: 4000
       })
     },
+
+    openNotifyUserDialog() {
+      this.dialogNotifyUsers = true
+    },
+
+    handleConfirmNotifyUsers() {
+      if (this.$refs.notifyUserSelector) {
+        this.$refs.notifyUserSelector.handleSaveUsers()
+      }
+      this.dialogNotifyUsers = false
+    },
+
+    clearNotifyUsers() {
+      this.notificationUserIds = []
+      this.notificationUserNames = ''
+    },
+
+    async sendDingTalkTextNotification() {
+      const content = this.notificationContent.trim()
+      if (this.notificationUserIds.length === 0) {
+        this.$message.warning('请先选择接收用户')
+        return
+      }
+      if (!content) {
+        this.$message.warning('请输入通知内容')
+        return
+      }
+
+      this.sendingDingTalkNotification = true
+      try {
+        const res = await sendTextWorkNotification({
+          userid_list: this.notificationUserIds.join(','),
+          to_all_user: false,
+          content
+        })
+        const dingTaskId = res.data && (res.data.taskId || res.data.task_id)
+        const taskId = dingTaskId ? `，任务ID：${dingTaskId}` : ''
+        this.$notify({
+          title: '发送成功',
+          message: `已向 ${this.notificationUserIds.length} 人发送钉钉工作通知${taskId}`,
+          type: 'success',
+          duration: 4000
+        })
+        this.notificationContent = ''
+      } finally {
+        this.sendingDingTalkNotification = false
+      }
+    },
   },
 }
 </script>
@@ -643,6 +833,9 @@ export default {
   border-radius: 4px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
   margin-bottom: 16px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
 }
 
 .page-title {
@@ -665,6 +858,73 @@ export default {
   border-radius: 4px;
   box-shadow: 0 1px 4px rgba(0, 0, 0, 0.08);
   margin-bottom: 16px;
+}
+
+.module-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+  gap: 16px;
+}
+
+.module-card {
+  background: #fff;
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
+  padding: 20px;
+  min-height: 118px;
+  display: flex;
+  align-items: center;
+  cursor: pointer;
+  transition: border-color 0.2s, box-shadow 0.2s, transform 0.2s;
+}
+
+.module-card:hover {
+  border-color: #409eff;
+  box-shadow: 0 6px 18px rgba(64, 158, 255, 0.14);
+  transform: translateY(-2px);
+}
+
+.module-icon {
+  width: 48px;
+  height: 48px;
+  border-radius: 4px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  margin-right: 14px;
+  color: #fff;
+  font-size: 24px;
+}
+
+.module-icon.sync {
+  background: #409eff;
+}
+
+.module-icon.notify {
+  background: #67c23a;
+}
+
+.module-content {
+  min-width: 0;
+  flex: 1;
+}
+
+.module-title {
+  font-size: 16px;
+  font-weight: 600;
+  color: #303133;
+  margin-bottom: 8px;
+}
+
+.module-desc {
+  font-size: 13px;
+  color: #606266;
+  line-height: 20px;
+}
+
+.module-arrow {
+  color: #c0c4cc;
+  margin-left: 12px;
 }
 
 .section-header {
@@ -713,5 +973,33 @@ export default {
   padding: 8px 12px;
   background: #ecf5ff;
   border-radius: 4px;
+}
+
+.notify-form {
+  margin-top: 16px;
+  max-width: 820px;
+}
+
+.notify-user-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.notify-user-count {
+  font-size: 13px;
+  color: #606266;
+}
+
+.notify-selected-users {
+  margin-top: 8px;
+  padding: 8px 10px;
+  background: #f5f7fa;
+  border: 1px solid #ebeef5;
+  border-radius: 4px;
+  color: #303133;
+  line-height: 20px;
+  max-height: 80px;
+  overflow: auto;
 }
 </style>

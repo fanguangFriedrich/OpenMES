@@ -37,4 +37,19 @@ namespace OpenAuth.App.DingTalk.Response
         [JsonPropertyName("result")]
         public DingTalkCorpUserInfo Result { get; set; }
     }
+
+    public class DingTalkWorkNotificationResponse
+    {
+        [JsonPropertyName("errcode")]
+        public int Errcode { get; set; }
+
+        [JsonPropertyName("errmsg")]
+        public string Errmsg { get; set; }
+
+        [JsonPropertyName("task_id")]
+        public long TaskId { get; set; }
+
+        [JsonPropertyName("request_id")]
+        public string RequestId { get; set; }
+    }
 }

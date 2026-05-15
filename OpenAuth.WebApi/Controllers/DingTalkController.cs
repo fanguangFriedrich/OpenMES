@@ -1,4 +1,6 @@
 ﻿using global::OpenAuth.App.DingTalk;
+using global::OpenAuth.App.DingTalk.Request;
+using global::OpenAuth.App.DingTalk.Response;
 using global::OpenAuth.Repository.Domain.DingTalk;
 using Infrastructure;
 using Microsoft.AspNetCore.Authorization;
@@ -65,6 +67,48 @@ namespace OpenAuth.WebApi.Controllers
             try
             {
                 result.Data = _app.GetDingTalkOptions();
+            }
+            catch (Exception ex)
+            {
+                result.Code = 500;
+                result.Message = ex.Message;
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// 发送钉钉工作通知，msg按钉钉接口原始格式传入
+        /// </summary>
+        [HttpPost]
+        [AllowAnonymous]
+        public async Task<Response<DingTalkWorkNotificationResponse>> SendWorkNotification([FromBody] DingTalkWorkNotificationReq req)
+        {
+            var result = new Response<DingTalkWorkNotificationResponse>();
+            try
+            {
+                result.Data = await _app.SendWorkNotificationAsync(req);
+                result.Message = "发送工作通知成功";
+            }
+            catch (Exception ex)
+            {
+                result.Code = 500;
+                result.Message = ex.Message;
+            }
+            return result;
+        }
+
+        /// <summary>
+        /// 发送钉钉文本工作通知
+        /// </summary>
+        [HttpPost]
+        [AllowAnonymous]
+        public async Task<Response<DingTalkWorkNotificationResponse>> SendTextWorkNotification([FromBody] DingTalkTextWorkNotificationReq req)
+        {
+            var result = new Response<DingTalkWorkNotificationResponse>();
+            try
+            {
+                result.Data = await _app.SendTextWorkNotificationAsync(req);
+                result.Message = "发送文本工作通知成功";
             }
             catch (Exception ex)
             {

@@ -162,3 +162,15 @@ export function getSyncDeptStatus(taskId) {
     params: { taskId }
   })
 }
+
+/**
+ * 发送钉钉文本工作通知
+ * @param {object} data 文本工作通知参数
+ */
+export function sendTextWorkNotification(data) {
+  return request({
+    url: '/DingTalk/SendTextWorkNotification',
+    method: 'post',
+    data
+  })
+}

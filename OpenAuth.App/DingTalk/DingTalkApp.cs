@@ -50,6 +50,7 @@ namespace OpenAuth.App.DingTalk
         private const string UserListApiUrl = "https://oapi.dingtalk.com/topapi/v2/user/list";
         private const string DeptListSubApiUrl = "https://oapi.dingtalk.com/topapi/v2/department/listsub";
         private const string DeptGetApiUrl = "https://oapi.dingtalk.com/topapi/v2/department/get";
+        private const string WorkNotificationApiUrl = "https://oapi.dingtalk.com/topapi/message/corpconversation/asyncsend_v2";
 
         public DingTalkApp(
         HttpClient httpClient,
@@ -173,6 +174,106 @@ namespace OpenAuth.App.DingTalk
                 throw new Exception("获取钉钉用户信息失败");
 
             return userInfo;
+        }
+
+        public async Task<DingTalkWorkNotificationResponse> SendWorkNotificationAsync(DingTalkWorkNotificationReq req)
+        {
+            ValidateWorkNotificationReq(req);
+
+            var corpAccessToken = await GetValidCorpAccessTokenAsync();
+            var url = $"{WorkNotificationApiUrl}?access_token={Uri.EscapeDataString(corpAccessToken)}";
+
+            var bodyObj = new Dictionary<string, object>
+            {
+                ["agent_id"] = ResolveAgentId(req.AgentId),
+                ["msg"] = req.Msg
+            };
+
+            if (!string.IsNullOrWhiteSpace(req.UseridList))
+                bodyObj["userid_list"] = req.UseridList;
+
+            if (!string.IsNullOrWhiteSpace(req.DeptIdList))
+                bodyObj["dept_id_list"] = req.DeptIdList;
+
+            if (req.ToAllUser.HasValue)
+                bodyObj["to_all_user"] = req.ToAllUser.Value;
+
+            var content = new StringContent(
+                JsonHelper.Serialize(bodyObj),
+                Encoding.UTF8,
+                "application/json"
+            );
+
+            var response = await _httpClient.PostAsync(url, content);
+            var resultJson = await response.Content.ReadAsStringAsync();
+            Console.WriteLine($"[DingTalk] SendWorkNotification 响应: {resultJson}");
+
+            if (!response.IsSuccessStatusCode)
+                throw new Exception($"发送工作通知失败 [{response.StatusCode}]: {resultJson}");
+
+            var result = JsonHelper.Deserialize<DingTalkWorkNotificationResponse>(resultJson)
+                ?? throw new Exception("解析发送工作通知响应失败");
+
+            if (result.Errcode != 0)
+                throw new Exception($"发送工作通知失败 errcode={result.Errcode}: {result.Errmsg}");
+
+            return result;
+        }
+
+        public Task<DingTalkWorkNotificationResponse> SendTextWorkNotificationAsync(DingTalkTextWorkNotificationReq req)
+        {
+            if (req == null)
+                throw new ArgumentNullException(nameof(req));
+
+            if (string.IsNullOrWhiteSpace(req.Content))
+                throw new ArgumentException("消息内容不能为空", nameof(req.Content));
+
+            var msgJson = JsonHelper.Serialize(new
+            {
+                msgtype = "text",
+                text = new
+                {
+                    content = req.Content
+                }
+            });
+
+            using var doc = JsonDocument.Parse(msgJson);
+            var sendReq = new DingTalkWorkNotificationReq
+            {
+                UseridList = req.UseridList,
+                DeptIdList = req.DeptIdList,
+                ToAllUser = req.ToAllUser,
+                AgentId = req.AgentId,
+                Msg = doc.RootElement.Clone()
+            };
+
+            return SendWorkNotificationAsync(sendReq);
+        }
+
+        private long ResolveAgentId(long? agentId)
+        {
+            if (agentId.HasValue && agentId.Value > 0)
+                return agentId.Value;
+
+            if (long.TryParse(_options.AgentId, out var configuredAgentId) && configuredAgentId > 0)
+                return configuredAgentId;
+
+            throw new Exception("钉钉 AgentId 未配置或格式不正确");
+        }
+
+        private static void ValidateWorkNotificationReq(DingTalkWorkNotificationReq req)
+        {
+            if (req == null)
+                throw new ArgumentNullException(nameof(req));
+
+            if (req.Msg.ValueKind == JsonValueKind.Undefined || req.Msg.ValueKind == JsonValueKind.Null)
+                throw new ArgumentException("消息体msg不能为空", nameof(req.Msg));
+
+            var hasUserIds = !string.IsNullOrWhiteSpace(req.UseridList);
+            var hasDeptIds = !string.IsNullOrWhiteSpace(req.DeptIdList);
+            var toAllUser = req.ToAllUser == true;
+            if (!hasUserIds && !hasDeptIds && !toAllUser)
+                throw new ArgumentException("userid_list、dept_id_list、to_all_user 必须至少提供一个");
         }
 
         // ─────────────────────────────────────────────
